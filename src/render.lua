@@ -108,6 +108,28 @@ function R.load()
     currentBack  = cardBacks[1]
 end
 
+-- ── Vignette overlay ──────────────────────────────────────────────────────
+-- A faint darkening at the four corners of the virtual canvas. Call from
+-- main.lua at the very end of every frame's drawing (right before V.drawEnd).
+-- We use four large soft ellipses pulled out beyond the canvas edges — cheap
+-- and looks like a real radial vignette without needing a shader.
+function R.drawVignette()
+    -- Four corner ellipses, alpha = 0.55 at the edge, fades to 0 toward centre.
+    local function corner(cx, cy)
+        for i = 1, 4 do
+            local a = 0.08 * (5 - i)         -- 0.32, 0.24, 0.16, 0.08
+            local r = 280 + i * 90
+            love.graphics.setColor(0, 0, 0, a * 0.35)
+            love.graphics.ellipse("fill", cx, cy, r, r * 0.72)
+        end
+    end
+    corner(-60,        -60)
+    corner(C.SW + 60,  -60)
+    corner(-60,        C.SH + 60)
+    corner(C.SW + 60,  C.SH + 60)
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
 function R.setBackTheme(idx)
     if #cardBacks == 0 then return end
     idx = ((idx - 1) % #cardBacks) + 1
@@ -255,19 +277,37 @@ local function button(label, x, y, w, h, mx, my, col, hcol)
     hoverProgress[key] = raw
     local p = easeOutCubic(raw)        -- 0..1, eased
 
+    -- Press progress: while the user is hovering AND holding mouse-1 down,
+    -- the button visually depresses for tactile click feedback.
+    local pressKey = key .. "#press"
+    hoverSeen[pressKey] = true
+    local prevPress = hoverProgress[pressKey] or 0
+    local pressTarget = (hov and love.mouse.isDown(1)) and 1 or 0
+    local pressK = math.min(1, dt * 22)            -- snappier than hover
+    local pressRaw = prevPress + (pressTarget - prevPress) * pressK
+    hoverProgress[pressKey] = pressRaw
+    local pr = easeOutCubic(pressRaw)              -- 0..1
+
     -- Derived visual params --------------------------------------------------
-    local lift    = -3 * p                    -- pixels (negative = up)
-    local scale   = 1 + 0.035 * p             -- 1.0 → 1.035
+    -- Press eats the hover lift (so it feels pushed back into the desk) and
+    -- shrinks scale very slightly.
+    local lift    = -3 * p + 4 * pr               -- pixels (negative = up)
+    local scale   = 1 + 0.035 * p - 0.020 * pr    -- 1.0 → 1.035 → 1.015
     local cx, cy  = x + w/2, y + h/2
     local fillCol = lerpColor(col, hcol, p)
     -- Brighten fill a touch more at full hover for extra "pop"
     fillCol[1] = math.min(1, fillCol[1] + 0.04 * p)
     fillCol[2] = math.min(1, fillCol[2] + 0.04 * p)
     fillCol[3] = math.min(1, fillCol[3] + 0.04 * p)
+    -- Press darkens the fill so it visibly responds to clicks
+    fillCol[1] = math.max(0, fillCol[1] - 0.12 * pr)
+    fillCol[2] = math.max(0, fillCol[2] - 0.12 * pr)
+    fillCol[3] = math.max(0, fillCol[3] - 0.12 * pr)
 
-    -- Drop shadow (deeper when hovered → button feels lifted) ----------------
-    setColor(0, 0, 0, 0.28 + 0.18 * p)
-    local shY = 3 + 4 * p
+    -- Drop shadow (deeper when hovered → button feels lifted; tighter when
+    -- pressed → button feels close to the desk).
+    setColor(0, 0, 0, 0.28 + 0.18 * p - 0.10 * pr)
+    local shY = 3 + 4 * p - 3 * pr
     love.graphics.rectangle("fill", x + 1, y + shY, w, h, 7)
 
     -- Body — scaled around centre so the layout / hit-box stays exact -------
@@ -446,11 +486,33 @@ local function drawHorizHand(hand, baseX, baseY, faceUp, playableSet, selectedId
     local sx     = baseX - totalW/2
     local hits   = {}
 
+    -- Per-card eased hover / selection progress so cards rise smoothly
+    -- instead of snapping. Keyed by rank+suit (stable across deals; pruned
+    -- automatically by the hover state cleanup in R.update).
+    local dt = love.timer.getDelta() or 0
+    local k  = math.min(1, dt * 14)
+
     for i, card in ipairs(hand) do
-        local x  = sx + (i-1)*OV
-        local dy = 0
-        if hoverIdx == i then dy = flip and 8 or -10 end
-        if selectedIdx == i then dy = flip and 12 or -14 end
+        local x = sx + (i-1)*OV
+
+        local kk    = "hand:" .. (card.rank or 0) .. ":" .. (card.suit or 0)
+        local sKey  = kk .. "#sel"
+        hoverSeen[kk]   = true
+        hoverSeen[sKey] = true
+
+        local hPrev = hoverProgress[kk]   or 0
+        local sPrev = hoverProgress[sKey] or 0
+        local hRaw  = hPrev + ((hoverIdx    == i and 1 or 0) - hPrev) * k
+        local sRaw  = sPrev + ((selectedIdx == i and 1 or 0) - sPrev) * k
+        hoverProgress[kk]   = hRaw
+        hoverProgress[sKey] = sRaw
+
+        local hp = easeOutCubic(hRaw)
+        local sp = easeOutCubic(sRaw)
+        local liftHov = flip and  8 or -10
+        local liftSel = flip and 12 or -14
+        local dy = liftHov * hp + liftSel * sp
+
         local hl = nil
         if selectedIdx == i then hl = "selected"
         elseif playableSet and playableSet[i] then hl = "playable" end
@@ -947,7 +1009,13 @@ local function drawBiddingBox(game, x, y, mx, my, selectedBid, hits)
         end
     end
 
-    -- Grid cells
+    -- Grid cells -----------------------------------------------------------
+    -- Each cell carries its own eased hover progress so the highlight slides
+    -- in/out smoothly instead of snapping. Selection also eases for a soft
+    -- "lock-in" feel.
+    local cellDt = love.timer.getDelta() or 0
+    local cellK  = math.min(1, cellDt * 16)
+
     for level = 1, 7 do
         for denom = 1, 5 do
             local cx = x + gap + (denom - 1) * (cellW + gap)
@@ -959,26 +1027,51 @@ local function drawBiddingBox(game, x, y, mx, my, selectedBid, hits)
             local hov   = mx >= cx and mx <= cx + cellW
                           and my >= cy and my <= cy + cellH
 
-            -- Background
-            if not legal then
-                setColor(0.12, 0.12, 0.12)
-            elseif sel then
-                setColor(0.55, 0.45, 0.08)
-            elseif hov then
-                setColor(0.20, 0.20, 0.20)
-            else
-                setColor(0.99, 0.97, 0.92)
-            end
+            -- Eased progress: hover only counts when the cell is legal,
+            -- otherwise illegal cells subtly shimmer on hover which is
+            -- visually misleading.
+            local kk    = "bid:" .. level .. ":" .. denom
+            local sKey  = kk .. "#sel"
+            hoverSeen[kk]   = true
+            hoverSeen[sKey] = true
+            local hPrev = hoverProgress[kk]   or 0
+            local sPrev = hoverProgress[sKey] or 0
+            local hRaw  = hPrev + (((hov and legal) and 1 or 0) - hPrev) * cellK
+            local sRaw  = sPrev + ((sel and 1 or 0) - sPrev) * cellK
+            hoverProgress[kk]   = hRaw
+            hoverProgress[sKey] = sRaw
+            local hp = easeOutCubic(hRaw)
+            local sp = easeOutCubic(sRaw)
+
+            -- Background — lerp between resting / hover / selected
+            local baseBg = legal and {0.99, 0.97, 0.92} or {0.12, 0.12, 0.12}
+            local hovBg  = {0.20, 0.20, 0.20}
+            local selBg  = {0.55, 0.45, 0.08}
+            local bg     = baseBg
+            if hp > 0 then bg = lerpColor(baseBg, hovBg, hp) end
+            if sp > 0 then bg = lerpColor(bg,     selBg, sp) end
+            setColor(bg)
             love.graphics.rectangle("fill", cx, cy, cellW, cellH, 4)
 
-            -- Border
-            if sel then
-                setColor(PAL.yellow)
-                love.graphics.setLineWidth(2)
-            else
-                setColor(legal and {0.65, 0.65, 0.65} or {0.30, 0.30, 0.30})
+            -- Top sheen on hover for a touch of "lit" feel
+            if hp > 0.01 and legal then
+                setColor(1, 1, 1, 0.06 * hp)
+                love.graphics.rectangle("fill", cx + 1, cy + 1,
+                    cellW - 2, math.max(2, cellH * 0.45), 4)
             end
+
+            -- Border — colour eases towards yellow on selection
+            local restBorder = legal and {0.65, 0.65, 0.65} or {0.30, 0.30, 0.30}
+            local borderCol  = lerpColor(restBorder, PAL.yellow, sp)
+            setColor(borderCol)
+            love.graphics.setLineWidth(1 + sp)
             love.graphics.rectangle("line", cx, cy, cellW, cellH, 4)
+            -- Outer glow ring when selected
+            if sp > 0.05 then
+                setColor(PAL.yellow[1], PAL.yellow[2], PAL.yellow[3], 0.35 * sp)
+                love.graphics.rectangle("line", cx - 2, cy - 2,
+                    cellW + 4, cellH + 4, 6)
+            end
             love.graphics.setLineWidth(1)
 
             -- Label
@@ -1586,15 +1679,37 @@ end
 function R.drawMainMenu(mx, my)
     setColor(PAL.felt)
     love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
+    -- Subtle, slow-breathing felt highlight at table centre. Adds a feeling
+    -- of life without distracting.
+    local t = love.timer.getTime()
+    local breath = 0.5 + 0.5 * math.sin(t * 0.9)   -- 0..1, ~0.9 Hz
+    local rx = 560 + breath * 14
+    local ry = 380 + breath * 9
     setColor(PAL.felt_inner)
-    love.graphics.ellipse("fill", C.SW/2, C.SH/2, 560, 380)
+    love.graphics.ellipse("fill", C.SW/2, C.SH/2, rx, ry)
 
-    -- Title with a soft drop-shadow
+    -- Title — gentle scale + glow pulse, drop shadow underneath
     love.graphics.setFont(fonts.title)
+    local titlePulse = 0.5 + 0.5 * math.sin(t * 1.6)   -- 0..1
+    local tScale     = 1 + 0.025 * titlePulse
+    local cxT, cyT   = C.SW/2, 175
+    love.graphics.push()
+    love.graphics.translate(cxT, cyT)
+    love.graphics.scale(tScale, tScale)
+    love.graphics.translate(-cxT, -cyT)
+    -- Outer glow rings (fades fully when pulse near 0)
+    if titlePulse > 0.05 then
+        setColor(PAL.yellow[1], PAL.yellow[2], PAL.yellow[3], 0.18 * titlePulse)
+        centredText(fonts.title, "BRIDGE", cxT, cyT)
+    end
     setColor(0, 0, 0, 0.45)
-    centredText(fonts.title, "BRIDGE", C.SW/2 + 3, 178)
-    setColor(PAL.yellow)
-    centredText(fonts.title, "BRIDGE", C.SW/2, 175)
+    centredText(fonts.title, "BRIDGE", cxT + 3, cyT + 3)
+    setColor(PAL.yellow[1] + 0.05 * titlePulse,
+             PAL.yellow[2] + 0.04 * titlePulse,
+             PAL.yellow[3],
+             1)
+    centredText(fonts.title, "BRIDGE", cxT, cyT)
+    love.graphics.pop()
 
     setColor(PAL.text_dim)
     centredText(fonts.med, "Minibridge — single player", C.SW/2, 232)
