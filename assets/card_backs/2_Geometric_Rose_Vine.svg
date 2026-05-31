@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 400" width="100%" height="100%">
+    <defs>
+        <pattern id="vine" x="0" y="0" width="56" height="56" patternUnits="userSpaceOnUse">
+            <rect width="56" height="56" fill="#DCEDC8"/>
+            <path d="M 0 0 L 56 56 M 56 0 L 0 56" stroke="#558B2F" stroke-width="1.5" />
+            <path d="M 28 18 Q 38 18 38 28 Q 38 38 28 38 Q 18 38 18 28 Q 18 18 28 18 Z" fill="#E91E63"/>
+            <circle cx="28" cy="28" r="4" fill="#FCE4EC" />
+            <ellipse cx="14" cy="14" rx="2" ry="4" fill="#33691E" transform="rotate(45 14 14)" />
+            <ellipse cx="42" cy="42" rx="2" ry="4" fill="#33691E" transform="rotate(45 42 42)" />
+        </pattern>
+    </defs>
+    
+    <rect x="0" y="0" width="280" height="400" rx="15" fill="url(#vine)" />
+    
+    <rect x="0" y="0" width="280" height="400" rx="15" fill="none" stroke="#ffffff" stroke-width="12"/>
+    <rect x="6" y="6" width="268" height="388" rx="9" fill="none" stroke="#212121" stroke-width="1" opacity="0.3"/>
+</svg>

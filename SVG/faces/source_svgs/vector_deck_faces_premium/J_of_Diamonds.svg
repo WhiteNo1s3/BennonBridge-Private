@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 350" width="100%" height="100%">
+    <defs>
+        <linearGradient id="grad_red" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#FF5252" />
+            <stop offset="50%" stop-color="#E91E63" />
+            <stop offset="100%" stop-color="#880E4F" />
+        </linearGradient>
+        <linearGradient id="grad_black" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#616161" />
+            <stop offset="50%" stop-color="#212121" />
+            <stop offset="100%" stop-color="#000000" />
+        </linearGradient>
+    </defs>
+
+    <rect x="5" y="5" width="240" height="340" rx="15" fill="#FCFAF2" stroke="#d0d0d0" stroke-width="1"/>
+    <rect x="15" y="15" width="220" height="320" rx="8" fill="none" stroke="#EAE0C8" stroke-width="1.5" opacity="0.8"/>
+    
+    <g fill="url(#grad_red)">
+        <text x="32" y="52" font-family="Arial, sans-serif" font-size="42" font-weight="bold" text-anchor="middle" letter-spacing="-2">J</text>
+        <g transform="translate(20, 58) scale(1)">
+            <path d="M12 2L2 12l10 10 10-10L12 2z" />
+        </g>
+    </g>
+
+    <g fill="url(#grad_red)" transform="rotate(180 125 175)">
+        <text x="32" y="52" font-family="Arial, sans-serif" font-size="42" font-weight="bold" text-anchor="middle" letter-spacing="-2">J</text>
+        <g transform="translate(20, 58) scale(1)">
+            <path d="M12 2L2 12l10 10 10-10L12 2z" />
+        </g>
+    </g>
+
+    <svg x="42" y="45" width="166" height="260" viewBox="0 0 200 300" preserveAspectRatio="xMidYMid meet">
+        
+    </svg>
+</svg>

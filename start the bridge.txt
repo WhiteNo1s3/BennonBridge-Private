@@ -1,0 +1,11 @@
+Stop-Process -Name love -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 400
+Start-Process "C:\Program Files\LOVE\love.exe" -ArgumentList "C:\Users\Ben\Documents\bridge" -RedirectStandardError "C:\Users\Ben\Documents\bridge\_err.txt"
+Start-Sleep -Milliseconds 1800
+$p = Get-Process love -ErrorAction SilentlyContinue
+if (-not $p) {
+    Write-Output "CRASHED"
+    Get-Content "C:\Users\Ben\Documents\bridge\_err.txt" -ErrorAction SilentlyContinue
+} else { Write-Output "ALIVE pid=$($p.Id)" }
+description: Launch and verify no compile errors
+ALIVE pid=10840

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 350" width="100%" height="100%">
+    <defs>
+        <linearGradient id="grad_red" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#FF5252" />
+            <stop offset="50%" stop-color="#E91E63" />
+            <stop offset="100%" stop-color="#880E4F" />
+        </linearGradient>
+        <linearGradient id="grad_black" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#616161" />
+            <stop offset="50%" stop-color="#212121" />
+            <stop offset="100%" stop-color="#000000" />
+        </linearGradient>
+    </defs>
+
+    <rect x="5" y="5" width="240" height="340" rx="15" fill="#FCFAF2" stroke="#d0d0d0" stroke-width="1"/>
+    <rect x="15" y="15" width="220" height="320" rx="8" fill="none" stroke="#EAE0C8" stroke-width="1.5" opacity="0.8"/>
+    
+    <g fill="#212121">
+        <text x="32" y="52" font-family="Arial, sans-serif" font-size="42" font-weight="bold" text-anchor="middle" letter-spacing="-2">3</text>
+        <g transform="translate(20, 58) scale(1)">
+            <path d="M 12,2 C 8,2 6.5,5 8,7.5 C 8.5,8.5 9.5,9 10.5,9.5 C 8.5,9.5 6,9 4.5,11 C 3,13 4.5,16 7,16 C 8.5,16 10,15 11,14 C 11,16 10,19 9,21 L 15,21 C 14,19 13,16 13,14 C 14,15 15.5,16 17,16 C 19.5,16 21,13 19.5,11 C 18,9 15.5,9.5 13.5,9.5 C 14.5,9 15.5,8.5 16,7.5 C 17.5,5 16,2 12,2 Z" />
+        </g>
+    </g>
+
+    <g fill="#212121" transform="rotate(180 125 175)">
+        <text x="32" y="52" font-family="Arial, sans-serif" font-size="42" font-weight="bold" text-anchor="middle" letter-spacing="-2">3</text>
+        <g transform="translate(20, 58) scale(1)">
+            <path d="M 12,2 C 8,2 6.5,5 8,7.5 C 8.5,8.5 9.5,9 10.5,9.5 C 8.5,9.5 6,9 4.5,11 C 3,13 4.5,16 7,16 C 8.5,16 10,15 11,14 C 11,16 10,19 9,21 L 15,21 C 14,19 13,16 13,14 C 14,15 15.5,16 17,16 C 19.5,16 21,13 19.5,11 C 18,9 15.5,9.5 13.5,9.5 C 14.5,9 15.5,8.5 16,7.5 C 17.5,5 16,2 12,2 Z" />
+        </g>
+    </g>
+
+    <g fill="#212121">
+        <g transform="translate(96.2, 51.2) scale(2.4)"><path d="M 12,2 C 8,2 6.5,5 8,7.5 C 8.5,8.5 9.5,9 10.5,9.5 C 8.5,9.5 6,9 4.5,11 C 3,13 4.5,16 7,16 C 8.5,16 10,15 11,14 C 11,16 10,19 9,21 L 15,21 C 14,19 13,16 13,14 C 14,15 15.5,16 17,16 C 19.5,16 21,13 19.5,11 C 18,9 15.5,9.5 13.5,9.5 C 14.5,9 15.5,8.5 16,7.5 C 17.5,5 16,2 12,2 Z" /></g>
+        <g transform="translate(96.2, 146.2) scale(2.4)"><path d="M 12,2 C 8,2 6.5,5 8,7.5 C 8.5,8.5 9.5,9 10.5,9.5 C 8.5,9.5 6,9 4.5,11 C 3,13 4.5,16 7,16 C 8.5,16 10,15 11,14 C 11,16 10,19 9,21 L 15,21 C 14,19 13,16 13,14 C 14,15 15.5,16 17,16 C 19.5,16 21,13 19.5,11 C 18,9 15.5,9.5 13.5,9.5 C 14.5,9 15.5,8.5 16,7.5 C 17.5,5 16,2 12,2 Z" /></g>
+        <g transform="rotate(180 125 270) translate(96.2, 241.2) scale(2.4)"><path d="M 12,2 C 8,2 6.5,5 8,7.5 C 8.5,8.5 9.5,9 10.5,9.5 C 8.5,9.5 6,9 4.5,11 C 3,13 4.5,16 7,16 C 8.5,16 10,15 11,14 C 11,16 10,19 9,21 L 15,21 C 14,19 13,16 13,14 C 14,15 15.5,16 17,16 C 19.5,16 21,13 19.5,11 C 18,9 15.5,9.5 13.5,9.5 C 14.5,9 15.5,8.5 16,7.5 C 17.5,5 16,2 12,2 Z" /></g>
+    </g>
+</svg>

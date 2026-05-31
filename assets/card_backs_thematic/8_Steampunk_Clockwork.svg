@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 400" width="100%" height="100%">
+    <defs>
+        <pattern id="steampunk" x="0" y="0" width="100" height="100" patternUnits="userSpaceOnUse">
+            <rect width="100" height="100" fill="#1E140F" />
+            <circle cx="0" cy="0" r="28" fill="#A67C00" stroke="#5E4300" stroke-width="5" stroke-dasharray="8 4" />
+            <circle cx="0" cy="0" r="12" fill="#1E140F" stroke="#5E4300" stroke-width="2"/>
+            <circle cx="100" cy="100" r="28" fill="#A67C00" stroke="#5E4300" stroke-width="5" stroke-dasharray="8 4" />
+            <circle cx="100" cy="100" r="12" fill="#1E140F" stroke="#5E4300" stroke-width="2"/>
+            <circle cx="50" cy="50" r="38" fill="#B85D19" stroke="#662A00" stroke-width="6" stroke-dasharray="10 5" />
+            <circle cx="50" cy="50" r="16" fill="#1E140F" stroke="#662A00" stroke-width="3"/>
+            <circle cx="100" cy="0" r="18" fill="#607D8B" stroke="#263238" stroke-width="4" stroke-dasharray="5 3" />
+            <circle cx="0" cy="100" r="18" fill="#607D8B" stroke="#263238" stroke-width="4" stroke-dasharray="5 3" />
+            <circle cx="50" cy="25" r="2" fill="#FFE082"/>
+            <circle cx="50" cy="75" r="2" fill="#FFE082"/>
+            <circle cx="25" cy="50" r="2" fill="#FFE082"/>
+            <circle cx="75" cy="50" r="2" fill="#FFE082"/>
+        </pattern>
+    </defs>
+    <rect x="0" y="0" width="280" height="400" rx="15" fill="url(#steampunk)" />
+    <rect x="0" y="0" width="280" height="400" rx="15" fill="none" stroke="#ffffff" stroke-width="12"/>
+    <rect x="6" y="6" width="268" height="388" rx="9" fill="none" stroke="#212121" stroke-width="1" opacity="0.4"/>
+</svg>

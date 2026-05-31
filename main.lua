@@ -1,0 +1,369 @@
+-- Bridge (Minibridge) — LÖVE2D single-player game
+-- Human plays South.  North-South vs East-West.
+-- Window is freely resizable; everything renders in a virtual 1280x800 space
+-- and is scaled with letterboxing to whatever size the window happens to be.
+
+local C    = require("src.constants")
+local Game = require("src.game")
+local R    = require("src.render")
+local V    = require("src.viewport")
+local SND  = require("src.sound")
+local Anim = require("src.anim")
+
+-- ── Global state ───────────────────────────────────────────────────────────
+
+local game        -- Game instance
+
+-- New-game setup state (seed + per-AI difficulty). Replaces what used to be
+-- the menu state.
+local setupState
+
+-- Per-state hit-test lists, filled in during R.draw* and consumed by clicks
+local mainMenuHits    = {}
+local setupHits       = {}
+local auctionHits     = {}
+local southHits, northHits = {}, {}
+local resultHits      = {}
+
+-- Per-state interaction state
+local southSel, southHov = nil, nil
+local northSel, northHov = nil, nil
+
+-- Bidding-box interaction (auction phase). selectedBid is {level, denom} chosen
+-- in the grid but not yet confirmed; nil means nothing selected.
+local selectedBid = nil
+
+-- ── Helpers ────────────────────────────────────────────────────────────────
+
+local function hitTest(hits, x, y)
+    for i = #hits, 1, -1 do        -- reverse: topmost wins
+        local h = hits[i]
+        if x >= h.x and x <= h.x+h.w and y >= h.y and y <= h.y+h.h then
+            return h
+        end
+    end
+    return nil
+end
+
+local function applySetupDifficulty()
+    game.difficulty = {
+        [C.NORTH] = setupState.difficulty[C.NORTH],
+        [C.EAST]  = setupState.difficulty[C.EAST],
+        -- South seat uses HARD whether you're playing or the AI is — when
+        -- watching CPU-vs-CPU we want a fair, strong opponent for the human's
+        -- side, not a weakened one.
+        [C.SOUTH] = C.HARD,
+        [C.WEST]  = setupState.difficulty[C.WEST],
+    }
+    -- Flag the game so its update loop knows South is a CPU
+    game.autoSouth = setupState.autoSouth
+end
+
+local function dealFromSetup()
+    applySetupDifficulty()
+    southSel, southHov = nil, nil
+    northSel, northHov = nil, nil
+    selectedBid = nil
+    -- Apply settings to the global subsystems
+    Anim.enabled = setupState.introAnim and true or false
+    SND.setEnabled(setupState.soundOn and true or false)
+    R.setBackTheme(setupState.backTheme)
+    -- Parse the seed buffer; empty = random
+    local seed = tonumber(setupState.seedBuf) or love.math.random(1, 99999)
+    if seed < 1 then seed = 1 end
+    setupState.seed    = seed
+    setupState.seedBuf = tostring(seed)
+    game:deal(seed)
+end
+
+-- ── LÖVE callbacks ─────────────────────────────────────────────────────────
+
+function love.load()
+    love.keyboard.setKeyRepeat(true)   -- for backspacing the seed
+    V.update()
+    R.load()
+    SND.load()
+    game = Game.new()
+    setupState = {
+        seedBuf = "1",
+        seed    = 1,
+        random  = false,
+        autoSouth = false,
+        introAnim = true,    -- deal animation at start of hand
+        soundOn   = true,    -- master sound toggle
+        backTheme = 1,       -- 1..9 (rotates through card-back PNGs)
+        difficulty = {
+            [C.NORTH] = C.MEDIUM,
+            [C.EAST]  = C.MEDIUM,
+            [C.WEST]  = C.MEDIUM,
+        },
+    }
+    game.state = C.STATE_MENU
+end
+
+function love.resize(w, h)
+    V.update()
+end
+
+function love.update(dt)
+    V.update()        -- cheap; safe to refresh every frame
+    game:update(dt)
+    R.update(dt)      -- drives confetti / future animation particles
+end
+
+function love.draw()
+    V.drawBegin()
+
+    local mx, my = V.mouseVirtual()
+
+    if game.state == C.STATE_MENU then
+        mainMenuHits = R.drawMainMenu(mx, my)
+
+    elseif game.state == C.STATE_NEWGAME then
+        setupHits = R.drawNewGameSetup(setupState, mx, my)
+
+    elseif game.state == C.STATE_DEALING then
+        R.drawDealing(game)
+
+    elseif game.state == C.STATE_AUCTION then
+        auctionHits = R.drawAuction(game, mx, my, selectedBid)
+
+    elseif game.state == C.STATE_PLAYING
+        or game.state == C.STATE_TRICK_END then
+        southHits, northHits = R.drawGame(
+            game, southSel, southHov, northSel, northHov)
+
+    elseif game.state == C.STATE_RESULT then
+        resultHits = R.drawResult(game, mx, my)
+    end
+
+    V.drawEnd()
+end
+
+-- ── Input ──────────────────────────────────────────────────────────────────
+
+function love.mousemoved(x, y)
+    x, y = V.toVirtual(x, y)
+    southHov = nil
+    if game.state == C.STATE_PLAYING then
+        local cp = game.currentPlayer
+        if cp == C.SOUTH then
+            local h = hitTest(southHits, x, y)
+            if h then southHov = h.idx end
+        end
+    end
+end
+
+function love.mousepressed(x, y, btn)
+    if btn ~= 1 then return end
+    x, y = V.toVirtual(x, y)
+
+    if     game.state == C.STATE_MENU      then onMainMenuClick(x, y)
+    elseif game.state == C.STATE_NEWGAME   then onSetupClick(x, y)
+    elseif game.state == C.STATE_DEALING   then game.state = C.STATE_AUCTION
+                                                Anim.active = false
+    elseif game.state == C.STATE_AUCTION   then onAuctionClick(x, y)
+    elseif game.state == C.STATE_PLAYING   then onPlayClick(x, y)
+    elseif game.state == C.STATE_RESULT    then onResultClick(x, y)
+    end
+end
+
+function love.textinput(text)
+    if game.state == C.STATE_NEWGAME and setupState.seedFocus then
+        -- Allow digits only, cap at 7 chars (~9.9 million seeds)
+        if text:match("%d") and #setupState.seedBuf < 7 then
+            setupState.seedBuf = setupState.seedBuf .. text
+        end
+    end
+end
+
+function love.keypressed(key)
+    if key == "escape" then
+        if game.state == C.STATE_MENU then
+            love.event.quit()
+        elseif game.state == C.STATE_NEWGAME then
+            game.state = C.STATE_MENU
+        else
+            -- During a hand, Esc backs out to main menu (forfeit current hand)
+            game.state = C.STATE_MENU
+        end
+        return
+    end
+
+    -- Seed input editing
+    if game.state == C.STATE_NEWGAME and setupState.seedFocus then
+        if key == "backspace" then
+            setupState.seedBuf = setupState.seedBuf:sub(1, -2)
+        elseif key == "return" or key == "kpenter" then
+            dealFromSetup()
+        end
+        return
+    end
+
+    if key == "space" or key == "return" then
+        if game.state == C.STATE_MENU then
+            game.state = C.STATE_NEWGAME
+        elseif game.state == C.STATE_NEWGAME then
+            dealFromSetup()
+        elseif game.state == C.STATE_AUCTION then
+            -- Space = Pass for the human when it's their turn
+            if game.auction and game.auction.currentBidder == C.SOUTH
+               and not game.autoSouth then
+                game:humanCall({type = C.CALL_PASS})
+                selectedBid = nil
+            end
+        end
+    end
+end
+
+-- ── Main menu ──────────────────────────────────────────────────────────────
+
+function onMainMenuClick(x, y)
+    local h = hitTest(mainMenuHits, x, y)
+    if not h then return end
+    if h.type == "newgame" then
+        game.state = C.STATE_NEWGAME
+    elseif h.type == "quit" then
+        love.event.quit()
+    end
+end
+
+-- ── New-game setup ────────────────────────────────────────────────────────
+
+function onSetupClick(x, y)
+    local h = hitTest(setupHits, x, y)
+    setupState.seedFocus = false
+    if not h then return end
+
+    if h.type == "deal" then
+        if setupState.random then
+            setupState.seedBuf = tostring(love.math.random(1, 99999))
+        end
+        dealFromSetup()
+
+    elseif h.type == "seedbox" then
+        setupState.seedFocus = true
+
+    elseif h.type == "random" then
+        setupState.random = not setupState.random
+        if setupState.random then
+            setupState.seedBuf = tostring(love.math.random(1, 99999))
+        end
+
+    elseif h.type == "autosouth" then
+        setupState.autoSouth = not setupState.autoSouth
+
+    elseif h.type == "introanim" then
+        setupState.introAnim = not setupState.introAnim
+        Anim.enabled = setupState.introAnim
+
+    elseif h.type == "sound" then
+        setupState.soundOn = not setupState.soundOn
+        SND.setEnabled(setupState.soundOn)
+
+    elseif h.type == "backprev" then
+        if R.BACK_COUNT > 0 then
+            setupState.backTheme = ((setupState.backTheme - 2) % R.BACK_COUNT) + 1
+            R.setBackTheme(setupState.backTheme)
+        end
+
+    elseif h.type == "backnext" then
+        if R.BACK_COUNT > 0 then
+            setupState.backTheme = (setupState.backTheme % R.BACK_COUNT) + 1
+            R.setBackTheme(setupState.backTheme)
+        end
+
+    elseif h.type == "diff" then
+        setupState.difficulty[h.player] = h.diff
+
+    elseif h.type == "back" then
+        game.state = C.STATE_MENU
+    end
+end
+
+-- ── Auction (contract bridge bidding) ─────────────────────────────────────
+
+function onAuctionClick(x, y)
+    local h = hitTest(auctionHits, x, y)
+    if not h then return end
+    -- Only act on human's turn
+    if not game.auction or game.auction.currentBidder ~= C.SOUTH then return end
+    if game.autoSouth then return end
+
+    if h.type == "bidcell" then
+        -- Cell click selects (or deselects) the bid; doesn't submit yet
+        if selectedBid and selectedBid.level == h.level
+           and selectedBid.denom == h.denom then
+            selectedBid = nil
+        else
+            -- Only allow legal bids
+            if game:isLegalCall({type = C.CALL_BID, level = h.level, denom = h.denom}) then
+                selectedBid = {level = h.level, denom = h.denom}
+            end
+        end
+
+    elseif h.type == "pass" then
+        game:humanCall({type = C.CALL_PASS})
+        selectedBid = nil
+
+    elseif h.type == "double" then
+        game:humanCall({type = C.CALL_DOUBLE})
+        selectedBid = nil
+
+    elseif h.type == "redouble" then
+        game:humanCall({type = C.CALL_REDOUBLE})
+        selectedBid = nil
+
+    elseif h.type == "confirm" then
+        if selectedBid then
+            game:humanCall({
+                type  = C.CALL_BID,
+                level = selectedBid.level,
+                denom = selectedBid.denom,
+            })
+            selectedBid = nil
+        end
+    end
+end
+
+-- ── Card play ─────────────────────────────────────────────────────────────
+
+function onPlayClick(x, y)
+    local cp = game.currentPlayer
+    if not cp then return end
+
+    local function isHumanTurn(p)
+        if game.declaringSide == "NS" then
+            if game.declarer == C.SOUTH then
+                return p == C.SOUTH or p == game.dummy
+            else
+                return false
+            end
+        else
+            return p == C.SOUTH
+        end
+    end
+
+    if not isHumanTurn(cp) then return end
+    local hits = (cp == C.SOUTH) and southHits or northHits
+    local h    = hitTest(hits, x, y)
+    if not h then return end
+
+    game:humanPlay(h.card)
+    southSel, northSel = nil, nil
+    southHov = nil
+end
+
+-- ── Result ────────────────────────────────────────────────────────────────
+
+function onResultClick(x, y)
+    local h = hitTest(resultHits, x, y)
+    if not h then return end
+    if h.type == "newgame" then
+        -- Pre-seed with next number for convenience, then to setup screen
+        setupState.seedBuf = tostring(game.seed + 1)
+        game.state = C.STATE_NEWGAME
+    elseif h.type == "menu" then
+        game.state = C.STATE_MENU
+    end
+end

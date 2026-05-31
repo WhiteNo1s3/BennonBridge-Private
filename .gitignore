@@ -1,0 +1,39 @@
+# ── Build / packaging artefacts ───────────────────────────────────────────
+*.love
+*.zip
+build/
+dist/
+out/
+
+# ── LÖVE error reports / scratch logs ─────────────────────────────────────
+_err.txt
+error.txt
+crash*.txt
+
+# ── Diagnostic screenshots dropped at repo root during testing ────────────
+_deal*.png
+_after_deal.png
+test_*.png
+
+# ── Generated Python tool artefacts ───────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+
+# ── Editor / OS junk ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ── Local Claude / agent state (keep your prompts out of public repo) ─────
+.claude/
+
+# ── Optional: bundled rules PDFs (large, you can re-share separately) ─────
+# Comment these out if you DO want the PDFs committed.
+155627480.pdf
+minibridgeRules.pdf
+
+# ── Misc loose AI-helper scratch files ────────────────────────────────────
+gemini-code-*.py
