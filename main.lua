@@ -49,10 +49,10 @@ local function applySetupDifficulty()
     game.difficulty = {
         [C.NORTH] = setupState.difficulty[C.NORTH],
         [C.EAST]  = setupState.difficulty[C.EAST],
-        -- South seat uses HARD whether you're playing or the AI is — when
+        -- South seat uses HARDEST whether you're playing or the AI is — when
         -- watching CPU-vs-CPU we want a fair, strong opponent for the human's
         -- side, not a weakened one.
-        [C.SOUTH] = C.HARD,
+        [C.SOUTH] = C.HARDEST,
         [C.WEST]  = setupState.difficulty[C.WEST],
     }
     -- Flag the game so its update loop knows South is a CPU
@@ -73,6 +73,24 @@ local function dealFromSetup()
     if seed < 1 then seed = 1 end
     setupState.seed    = seed
     setupState.seedBuf = tostring(seed)
+    
+    game.matchMode = setupState.matchMode
+    game.confettiFired = false
+    
+    if game.matchMode == "7board" then
+        if not game.matchBoard or game.matchBoard == 1 then
+            game.matchBoard = 1
+            game.matchStartSeed = seed
+            game.matchSeeds = {seed}
+            game.matchWins = {0, 0}
+            game.sessionScore = {0, 0}
+            game.matchBoardDetails = {}
+            game.showMatchDetailsTable = false
+        end
+    else
+        game.sessionScore = {0, 0}
+    end
+    
     game:deal(seed)
 end
 
@@ -107,7 +125,46 @@ end
 
 function love.update(dt)
     V.update()        -- cheap; safe to refresh every frame
-    game:update(dt)
+    
+    if game.state == C.STATE_RESULT and game.autoSouth then
+        -- Handle result auto-advance for CPU testing
+        local linger = game.humanWon and 8.0 or 4.0
+        game.aiTimer = (game.aiTimer or 0) + dt
+        if game.aiTimer > linger then
+            game.aiTimer = 0
+            if game.matchMode == "7board" then
+                if game.matchBoard >= 7 then
+                    game.state = "match_summary"
+                else
+                    game.matchBoard = game.matchBoard + 1
+                    local nextSeed
+                    if game.matchSeeds and game.matchSeeds[game.matchBoard] then
+                        nextSeed = game.matchSeeds[game.matchBoard]
+                    else
+                        if setupState.random then
+                            nextSeed = love.math.random(1, 99999)
+                        else
+                            nextSeed = game.seed + 1
+                        end
+                        game.matchSeeds = game.matchSeeds or {}
+                        game.matchSeeds[game.matchBoard] = nextSeed
+                    end
+                    setupState.seedBuf = tostring(nextSeed)
+                    dealFromSetup()
+                end
+            else
+                -- Single match auto-advance
+                if setupState.random then
+                    setupState.seedBuf = tostring(love.math.random(1, 99999))
+                else
+                    setupState.seedBuf = tostring(game.seed + 1)
+                end
+                dealFromSetup()
+            end
+        end
+    else
+        game:update(dt)
+    end
     R.update(dt)      -- drives confetti / future animation particles
 end
 
@@ -134,7 +191,10 @@ function love.draw()
             game, southSel, southHov, northSel, northHov)
 
     elseif game.state == C.STATE_RESULT then
-        resultHits = R.drawResult(game, mx, my)
+        resultHits = R.drawResult(game, setupState, mx, my)
+
+    elseif game.state == "match_summary" then
+        resultHits = R.drawMatchSummary(game, mx, my)
     end
 
     V.drawEnd()
@@ -164,12 +224,12 @@ function love.mousepressed(x, y, btn)
                                                 Anim.active = false
     elseif game.state == C.STATE_AUCTION   then onAuctionClick(x, y)
     elseif game.state == C.STATE_PLAYING   then onPlayClick(x, y)
-    elseif game.state == C.STATE_RESULT    then onResultClick(x, y)
+    elseif game.state == C.STATE_RESULT or game.state == "match_summary" then onResultClick(x, y)
     end
 end
 
 function love.textinput(text)
-    if game.state == C.STATE_NEWGAME and setupState.seedFocus then
+    if (game.state == C.STATE_NEWGAME or game.state == C.STATE_RESULT) and setupState.seedFocus then
         -- Allow digits only, cap at 7 chars (~9.9 million seeds)
         if text:match("%d") and #setupState.seedBuf < 7 then
             setupState.seedBuf = setupState.seedBuf .. text
@@ -191,7 +251,7 @@ function love.keypressed(key)
     end
 
     -- Seed input editing
-    if game.state == C.STATE_NEWGAME and setupState.seedFocus then
+    if (game.state == C.STATE_NEWGAME or game.state == C.STATE_RESULT) and setupState.seedFocus then
         if key == "backspace" then
             setupState.seedBuf = setupState.seedBuf:sub(1, -2)
         elseif key == "return" or key == "kpenter" then
@@ -222,7 +282,13 @@ function onMainMenuClick(x, y)
     local h = hitTest(mainMenuHits, x, y)
     if not h then return end
     if h.type == "newgame" then
+        game.sessionScore = {0, 0}
+        game.matchBoard = 1
+        setupState.matchMode = setupState.matchMode or "single"
         game.state = C.STATE_NEWGAME
+        
+    elseif h.type == "options" then
+        -- Not implemented yet
     elseif h.type == "quit" then
         love.event.quit()
     end
@@ -244,11 +310,14 @@ function onSetupClick(x, y)
     elseif h.type == "seedbox" then
         setupState.seedFocus = true
 
-    elseif h.type == "random" then
+    elseif h.type == "random_now" then
+        setupState.seedBuf = tostring(love.math.random(1, 99999))
+
+    elseif h.type == "random_toggle" then
         setupState.random = not setupState.random
-        if setupState.random then
-            setupState.seedBuf = tostring(love.math.random(1, 99999))
-        end
+
+    elseif h.type == "match_toggle" then
+        setupState.matchMode = setupState.matchMode == "7board" and "single" or "7board"
 
     elseif h.type == "autosouth" then
         setupState.autoSouth = not setupState.autoSouth
@@ -358,11 +427,87 @@ end
 
 function onResultClick(x, y)
     local h = hitTest(resultHits, x, y)
+    setupState.seedFocus = false
     if not h then return end
-    if h.type == "newgame" then
-        -- Pre-seed with next number for convenience, then to setup screen
-        setupState.seedBuf = tostring(game.seed + 1)
-        game.state = C.STATE_NEWGAME
+
+    if h.type == "reveal_table" then
+        game.showMatchDetailsTable = true
+        return
+    elseif h.type == "hide_table" then
+        game.showMatchDetailsTable = false
+        return
+    end
+    
+    if h.type == "next_board_anywhere" then
+        if game.matchBoard >= 7 then
+            game.state = "match_summary"
+            return
+        end
+        game.matchBoard = game.matchBoard + 1
+        
+        local nextSeed
+        if game.matchSeeds and game.matchSeeds[game.matchBoard] then
+            nextSeed = game.matchSeeds[game.matchBoard]
+        else
+            if setupState.random then
+                nextSeed = love.math.random(1, 99999)
+            else
+                nextSeed = game.seed + 1
+            end
+            game.matchSeeds = game.matchSeeds or {}
+            game.matchSeeds[game.matchBoard] = nextSeed
+        end
+        setupState.seedBuf = tostring(nextSeed)
+        dealFromSetup()
+        return
+    end
+
+    if h.type == "seedbox" then
+        setupState.seedFocus = true
+    elseif h.type == "random_now" then
+        setupState.seedBuf = tostring(love.math.random(1, 99999))
+    elseif h.type == "replay" then
+        setupState.seedBuf = tostring(game.seed)
+        dealFromSetup()
+        
+    elseif h.type == "next_hand" then
+        if game.matchMode == "7board" then
+            if game.matchBoard >= 7 then
+                game.state = "match_summary"
+                return
+            end
+            game.matchBoard = game.matchBoard + 1
+        end
+        
+        dealFromSetup()
+        
+    elseif h.type == "replay_match" then
+        game.matchBoard = 1
+        game.sessionScore = {0, 0}
+        game.matchWins = {0, 0}
+        game.matchBoardDetails = {}
+        game.showMatchDetailsTable = false
+        local firstSeed = game.matchSeeds and game.matchSeeds[1] or game.matchStartSeed or 1
+        setupState.seedBuf = tostring(firstSeed)
+        dealFromSetup()
+
+    elseif h.type == "new_match" then
+        game.matchBoard = 1
+        game.sessionScore = {0, 0}
+        game.matchWins = {0, 0}
+        game.matchBoardDetails = {}
+        game.showMatchDetailsTable = false
+        local newStartSeed
+        if setupState.random then
+            newStartSeed = love.math.random(1, 99999)
+        else
+            newStartSeed = (game.matchStartSeed or game.seed or 1) + 7
+        end
+        game.matchStartSeed = newStartSeed
+        game.matchSeeds = {newStartSeed}
+        setupState.seedBuf = tostring(newStartSeed)
+        dealFromSetup()
+
     elseif h.type == "menu" then
         game.state = C.STATE_MENU
     end

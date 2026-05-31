@@ -49,10 +49,12 @@ C.GAME_TRICKS = {11, 11, 10, 10, 9}   -- C, D, H, S, NT
 C.TRICK_PTS = {20, 20, 30, 30, 30}    -- C,D=20; H,S,NT=30 (NT also has 10-pt bonus)
 
 -- Difficulty levels
-C.EASY   = 1
-C.MEDIUM = 2
-C.HARD   = 3
-C.DIFF_NAMES = {"Easy","Medium","Hard"}
+C.EASY    = 1
+C.MEDIUM  = 2
+C.HARD    = 3
+C.HARDER  = 4
+C.HARDEST = 5
+C.DIFF_NAMES = {"Easy", "Medium", "Hard", "Harder", "Hardest"}
 
 -- Game states
 C.STATE_MENU      = "menu"
