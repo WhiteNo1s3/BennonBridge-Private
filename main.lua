@@ -197,6 +197,10 @@ function love.draw()
         resultHits = R.drawMatchSummary(game, mx, my)
     end
 
+    -- Subtle vignette overlay on top of everything (still in virtual space,
+    -- so it scales with the window).
+    R.drawVignette()
+
     V.drawEnd()
 end
 
