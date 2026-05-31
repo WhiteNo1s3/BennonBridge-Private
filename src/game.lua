@@ -15,6 +15,7 @@ function Game.new()
     g.state        = C.STATE_MENU
     g.seed         = 1
     g.sessionScore = {0, 0}    -- [1]=NS, [2]=EW
+    g.matchWins    = {0, 0}    -- [1]=NS wins, [2]=EW wins in a 7-board match
     g.difficulty   = {C.MEDIUM, C.MEDIUM, C.MEDIUM, C.MEDIUM}
     g.aiTimer      = 0
     g.aiDelay      = 0.75      -- seconds between AI actions
@@ -270,17 +271,7 @@ function Game:update(dt)
     elseif self.state == C.STATE_TRICK_END then
         self:_updateTrickEnd(dt)
     elseif self.state == C.STATE_RESULT then
-        -- In CPU-vs-CPU playtest mode, auto-advance to the next hand after a
-        -- short pause so the demo runs continuously.
-        if self.autoSouth then
-            -- Give wins enough screen-time for the confetti to be enjoyed
-            local linger = self.humanWon and 8.0 or 4.0
-            self.aiTimer = (self.aiTimer or 0) + dt
-            if self.aiTimer > linger then
-                self.aiTimer = 0
-                self:deal((self.seed or 1) + 1)
-            end
-        end
+        -- Auto-advance handled cohesively in main.lua
     end
 end
 
@@ -435,15 +426,37 @@ function Game:_endHand()
     if result.declarerWins then
         local idx = (self.declaringSide == "NS") and 1 or 2
         self.sessionScore[idx] = self.sessionScore[idx] + result.points
+        self.matchWins = self.matchWins or {0, 0}
+        self.matchWins[idx] = self.matchWins[idx] + 1
     else
         local idx = (self.declaringSide == "NS") and 2 or 1
         self.sessionScore[idx] = self.sessionScore[idx] + result.points
+        self.matchWins = self.matchWins or {0, 0}
+        self.matchWins[idx] = self.matchWins[idx] + 1
     end
 
     -- The human is South (NS partnership). They win if their side scored
     -- the points, regardless of whether they were declaring or defending.
     local humanSideIsDeclaring = (self.declaringSide == "NS")
     self.humanWon = (humanSideIsDeclaring == result.declarerWins)
+
+    -- Capture board details
+    if self.matchMode == "7board" then
+        self.matchBoardDetails = self.matchBoardDetails or {}
+        local winnerSide = result.declarerWins and self.declaringSide or (self.declaringSide == "NS" and "EW" or "NS")
+        self.matchBoardDetails[self.matchBoard or 1] = {
+            board = self.matchBoard or 1,
+            seed = self.seed,
+            contract = self.contract and {suit = self.contract.suit, tricks = self.contract.tricks} or nil,
+            contractTricks = self.contractTricks,
+            contractDoubled = self.contractDoubled,
+            contractRedoubled = self.contractRedoubled,
+            declarer = self.declarer,
+            tricksDeclarer = self.tricksDeclarer,
+            points = result.points,
+            winnerSide = winnerSide
+        }
+    end
 
     self.state = C.STATE_RESULT
 end

@@ -164,6 +164,108 @@ function AI.hardPlay(hand, trick, trump, partner, played)
     return hardFollow(legal, trick, trump, partner, hand)
 end
 
+-- ── Harder ─────────────────────────────────────────────────────────────────
+
+local function harderLead(hand, trump, played)
+    local bestCard = nil
+    local bestScore = -1
+    
+    for _, c in ipairs(hand) do
+        local score = 0
+        if c.rank == 14 then score = 50 end -- Cash Aces
+        if c.suit ~= trump then
+            -- Prefer solid sequences
+            local hasNext = false
+            for _, c2 in ipairs(hand) do
+                if c2.suit == c.suit and c2.rank == c.rank - 1 then
+                    hasNext = true; break
+                end
+            end
+            if hasNext then score = score + 10 end
+            
+            local len = 0
+            for _, c2 in ipairs(hand) do if c2.suit == c.suit then len = len + 1 end end
+            score = score + len
+        end
+        if score > bestScore then
+            bestScore = score
+            bestCard = c
+        end
+    end
+    return bestCard or cheapest(hand)
+end
+
+local function harderFollow(legal, trick, trump, partner, hand)
+    local w = winningCards(legal, trick, trump)
+    -- Finesse logic: playing 3rd
+    if #trick == 2 and not partnerWinning(trick, partner, trump) then
+        if #w > 0 then
+            table.sort(w, function(a,b) return a.rank < b.rank end)
+            return w[1]
+        end
+    end
+    
+    if partnerWinning(trick, partner, trump) and #trick >= 2 then
+        return cheapest(legal)
+    end
+    if #w > 0 then
+        table.sort(w, function(a,b) return a.rank < b.rank end)
+        return w[1]
+    end
+    return cheapest(legal)
+end
+
+function AI.harderPlay(hand, trick, trump, partner, played)
+    local ledSuit = (#trick > 0) and trick[1].card.suit or nil
+    local legal   = AI.legalCards(hand, ledSuit)
+    if ledSuit == nil then
+        return harderLead(hand, trump, played)
+    end
+    return harderFollow(legal, trick, trump, partner, hand)
+end
+
+-- ── Hardest ────────────────────────────────────────────────────────────────
+
+local function hardestFollow(legal, trick, trump, partner, hand, played)
+    local w = winningCards(legal, trick, trump)
+
+    if #trick == 1 then
+        -- SECOND HAND LOW, Cover an honor with an honor
+        local ledCard = trick[1].card
+        if ledCard.rank >= 10 and #w > 0 then
+            table.sort(w, function(a,b) return a.rank < b.rank end)
+            return w[1]
+        else
+            return cheapest(legal)
+        end
+    elseif #trick == 2 then
+        -- THIRD HAND HIGH
+        if not partnerWinning(trick, partner, trump) then
+            if #w > 0 then
+                table.sort(w, function(a,b) return a.rank < b.rank end)
+                return w[#w] -- Play highest winner to force out 4th hand's stop
+            end
+        end
+        return cheapest(legal)
+    else
+        -- FOURTH HAND
+        if not partnerWinning(trick, partner, trump) and #w > 0 then
+            table.sort(w, function(a,b) return a.rank < b.rank end)
+            return w[1] -- Play lowest winner to take trick
+        end
+        return cheapest(legal)
+    end
+end
+
+function AI.hardestPlay(hand, trick, trump, partner, played)
+    local ledSuit = (#trick > 0) and trick[1].card.suit or nil
+    local legal   = AI.legalCards(hand, ledSuit)
+    if ledSuit == nil then
+        return harderLead(hand, trump, played) -- Lead logic is same as harder for now
+    end
+    return hardestFollow(legal, trick, trump, partner, hand, played)
+end
+
 -- ── Main entry point ───────────────────────────────────────────────────────
 
 -- `state` fields used: hands, currentTrick, trumpSuit, played
@@ -178,8 +280,12 @@ function AI.chooseCard(state, player, difficulty)
         return AI.easyPlay(AI.legalCards(hand, ledSuit))
     elseif difficulty == C.MEDIUM then
         return AI.mediumPlay(hand, trick, trump, partner)
-    else
+    elseif difficulty == C.HARD then
         return AI.hardPlay(hand, trick, trump, partner, state.played)
+    elseif difficulty == C.HARDER then
+        return AI.harderPlay(hand, trick, trump, partner, state.played)
+    else
+        return AI.hardestPlay(hand, trick, trump, partner, state.played)
     end
 end
 

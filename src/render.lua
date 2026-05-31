@@ -171,9 +171,10 @@ local function drawConfetti()
 end
 
 -- Called by drawResult on state-entry to trigger celebrations.
-local function maybeStartConfetti(humanWon, currentState)
-    if currentState == C.STATE_RESULT and prevState ~= C.STATE_RESULT then
-        if humanWon then
+local function maybeStartConfetti(game)
+    if game.state == C.STATE_RESULT and not game.confettiFired then
+        game.confettiFired = true
+        if game.humanWon then
             confetti.particles = {}
             spawnConfettiBurst()
         else
@@ -181,7 +182,6 @@ local function maybeStartConfetti(humanWon, currentState)
             confetti.particles = {}
         end
     end
-    prevState = currentState
 end
 
 -- ── Low-level helpers ──────────────────────────────────────────────────────
@@ -199,21 +199,27 @@ local function setColor(a, b, c, d)
     end
 end
 
-local function centredText(font, text, cx, cy)
+local function centredText(font, text, cx, cy, maxWidth)
     love.graphics.setFont(font)
-    local tw = font:getWidth(text)
-    local th = font:getHeight()
-    love.graphics.print(text, cx - tw/2, cy - th/2)
+    local tw = (font:getWidth(text))
+    local th = (font:getHeight())
+    if maxWidth and tw > maxWidth then
+        local scale = maxWidth / tw
+        love.graphics.push()
+        love.graphics.translate(cx, cy)
+        love.graphics.scale(scale, scale)
+        love.graphics.print(text, -tw/2, -th/2)
+        love.graphics.pop()
+    else
+        love.graphics.print(text, cx - tw/2, cy - th/2)
+    end
 end
 
 -- ── Modern hover-animated buttons ──────────────────────────────────────────
 --
--- Each button is identified by its (x, y, label) tuple, which is stable across
--- frames. We track a 0..1 "hover progress" per button (declared above so
--- R.update can prune stale entries) and ease it towards the target every
--- frame, then drive lift / scale / colour / glow / shadow from that single
--- value. The button() signature is unchanged so callers keep working — they
--- just look noticeably more alive.
+-- Per-button hover progress (0..1) eases towards the hover target every frame
+-- and drives lift / scale / colour / glow / shadow. Signature is unchanged so
+-- every existing caller keeps working — buttons just look more alive.
 
 local function btnKey(label, x, y)
     return label .. "@" .. math.floor(x) .. "," .. math.floor(y)
@@ -239,21 +245,21 @@ local function button(label, x, y, w, h, mx, my, col, hcol)
     local hov = mx >= x and mx <= x+w and my >= y and my <= y+h
 
     -- Advance the per-button hover progress towards its target.
-    local key  = btnKey(label, x, y)
+    local key = btnKey(label, x, y)
     hoverSeen[key] = true
-    local prev = hoverProgress[key] or 0
+    local prev   = hoverProgress[key] or 0
     local target = hov and 1 or 0
-    local dt   = love.timer.getDelta() or 0
-    local k    = math.min(1, dt * HOVER_SPEED)
-    local raw  = prev + (target - prev) * k
+    local dt     = love.timer.getDelta() or 0
+    local k      = math.min(1, dt * HOVER_SPEED)
+    local raw    = prev + (target - prev) * k
     hoverProgress[key] = raw
     local p = easeOutCubic(raw)        -- 0..1, eased
 
     -- Derived visual params --------------------------------------------------
-    local lift     = -3 * p                   -- pixels (negative = up)
-    local scale    = 1 + 0.035 * p            -- 1.0 → 1.035
-    local cx, cy   = x + w/2, y + h/2
-    local fillCol  = lerpColor(col, hcol, p)
+    local lift    = -3 * p                    -- pixels (negative = up)
+    local scale   = 1 + 0.035 * p             -- 1.0 → 1.035
+    local cx, cy  = x + w/2, y + h/2
+    local fillCol = lerpColor(col, hcol, p)
     -- Brighten fill a touch more at full hover for extra "pop"
     fillCol[1] = math.min(1, fillCol[1] + 0.04 * p)
     fillCol[2] = math.min(1, fillCol[2] + 0.04 * p)
@@ -264,7 +270,7 @@ local function button(label, x, y, w, h, mx, my, col, hcol)
     local shY = 3 + 4 * p
     love.graphics.rectangle("fill", x + 1, y + shY, w, h, 7)
 
-    -- Body — scaled around centre so the layout/hit-box stays exact ---------
+    -- Body — scaled around centre so the layout / hit-box stays exact -------
     love.graphics.push()
     love.graphics.translate(cx, cy + lift)
     love.graphics.scale(scale, scale)
@@ -282,27 +288,20 @@ local function button(label, x, y, w, h, mx, my, col, hcol)
         love.graphics.setLineWidth(2)
         setColor(hcol[1], hcol[2], hcol[3], 0.65 * p)
         love.graphics.rectangle("line", x - 1, y - 1, w + 2, h + 2, 8)
-        -- second, softer ring further out for a halo feel
         setColor(hcol[1], hcol[2], hcol[3], 0.22 * p)
         love.graphics.rectangle("line", x - 3, y - 3, w + 6, h + 6, 10)
         love.graphics.setLineWidth(1)
     end
 
     -- Label (slight brightness boost on hover) ------------------------------
-    setColor(1, 1, 1, 1)
-    if p > 0 then
-        setColor(1, 1, 1, math.min(1, 0.92 + 0.08 * p))
-    end
+    setColor(1, 1, 1, math.min(1, 0.92 + 0.08 * p))
     centredText(fonts.med, label, cx, cy)
 
     love.graphics.pop()
-    -- Reset colour so subsequent draws don't inherit our tint
     setColor(1, 1, 1, 1)
 
     return hov, x, y, w, h
 end
-
--- (pruneHoverState is declared earlier so R.update can call it.)
 
 -- ── Suit pips (vector shapes — LÖVE's default font lacks ♠♥♦♣ glyphs) ───────
 -- Draws a filled suit symbol centred at (cx,cy). `s` ≈ half-height.
@@ -344,38 +343,6 @@ R.drawPip = drawPip
 
 -- ── Card drawing ───────────────────────────────────────────────────────────
 
--- Procedural J/Q/K face (no SVG art) — matches the SVG style: white card,
--- light grey border, rank letter in corners with pip, big rank letter centre.
-local function drawFaceCardProcedural(x, y, card, scol)
-    local rkStr = C.RANK_NAMES[card.rank - 1]
-    -- Face background
-    setColor(PAL.card_face)
-    love.graphics.rectangle("fill", x, y, CW, CH, CR)
-    setColor(0.88, 0.88, 0.88)
-    love.graphics.setLineWidth(1.5)
-    love.graphics.rectangle("line", x+1, y+1, CW-2, CH-2, CR)
-    love.graphics.setLineWidth(1)
-
-    -- Corner rank + pip (top-left and bottom-right rotated)
-    setColor(scol)
-    love.graphics.setFont(fonts.cardRk)
-    love.graphics.print(rkStr, x+5, y+3)
-    drawPip(card.suit, x+11, y+26, 5)
-
-    love.graphics.push()
-    love.graphics.translate(x + CW - 5, y + CH - 3)
-    love.graphics.rotate(math.pi)
-    love.graphics.setFont(fonts.cardRk)
-    love.graphics.print(rkStr, 0, 0)
-    drawPip(card.suit, 6, 24, 5)
-    love.graphics.pop()
-
-    -- Big centre letter
-    love.graphics.setFont(fonts.cardFace)
-    local fw = fonts.cardFace:getWidth(rkStr)
-    local fh = fonts.cardFace:getHeight()
-    love.graphics.print(rkStr, x + CW/2 - fw/2, y + CH/2 - fh/2)
-end
 
 -- Draw a face-up card with top-left corner at (x,y)
 local function drawCardFace(x, y, card, highlight, dimmed)
@@ -396,14 +363,33 @@ local function drawCardFace(x, y, card, highlight, dimmed)
 
     local img = cardImg[card.rank] and cardImg[card.rank][card.suit]
     if img then
+        local draw_x, draw_y = x, y
+        local target_w, target_h = CW, CH
+        
+        -- Numeric cards and Aces have a 5-unit transparent border in a 250x350 viewBox (240x340 visible)
+        -- To make the visible card exactly CW x CH, we scale by 250/240
+        if card.rank < 11 or card.rank == 14 then
+            local expand_x = 250 / 240
+            local expand_y = 350 / 340
+            target_w = CW * expand_x
+            target_h = CH * expand_y
+            -- Offset so it stays centered
+            draw_x = x - (target_w - CW) / 2
+            draw_y = y - (target_h - CH) / 2
+        else
+            -- If it's a face card, we draw the vintage ivory background first since their SVGs are transparent
+            if dimmed then setColor(0.75, 0.75, 0.75) else setColor(252/255, 250/255, 242/255) end
+            love.graphics.rectangle("fill", x, y, CW, CH, CR)
+            -- Subtle border
+            love.graphics.setLineWidth(1)
+            if dimmed then setColor(0.6, 0.6, 0.6) else setColor(208/255, 208/255, 208/255) end
+            love.graphics.rectangle("line", x, y, CW, CH, CR)
+        end
+        
         -- Use SVG-rasterized face
         if dimmed then setColor(0.75, 0.75, 0.75) else setColor(1, 1, 1) end
-        local sx, sy = CW / img:getWidth(), CH / img:getHeight()
-        love.graphics.draw(img, x, y, 0, sx, sy)
-    else
-        -- J/Q/K — procedural
-        if dimmed then setColor(0.8, 0.8, 0.8) else setColor(PAL.card_face) end
-        drawFaceCardProcedural(x, y, card, scol)
+        local sx, sy = target_w / img:getWidth(), target_h / img:getHeight()
+        love.graphics.draw(img, draw_x, draw_y, 0, sx, sy)
     end
 end
 
@@ -536,47 +522,77 @@ local function drawPanel(x, y, w, h)
 end
 
 local function drawInfoPanel(game)
-    local x, y, w, h = C.SW-210, 8, 202, 170
-    drawPanel(x, y, w, h)
+    if not game.contract then return end
+
+    local w, h = 240, 180
+    local x, y = C.SW - w - 15, 15
+    
+    -- Drop shadow
+    setColor(0, 0, 0, 0.4)
+    love.graphics.rectangle("fill", x+4, y+4, w, h, 10)
+    
+    -- Main slate panel
+    setColor(0x2C/255, 0x30/255, 0x3A/255, 0.95)
+    love.graphics.rectangle("fill", x, y, w, h, 10)
+    
+    -- Inner border
+    setColor(0x3A/255, 0x40/255, 0x4A/255)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", x, y, w, h, 10)
+    
+    -- Contract Level & Suit
+    local level = (game.contract.tricks or 7) - 6
+    local extra = ""
+    if game.contractRedoubled then extra = " XX"
+    elseif game.contractDoubled then extra = " X" end
+    
+    -- Title: "CURRENT CONTRACT"
+    love.graphics.setFont(fonts.small)
+    setColor(0.6, 0.65, 0.7)
+    centredText(fonts.small, "CURRENT CONTRACT", x + w/2, y + 18)
+    
+    -- Big Contract display (e.g. "4 S")
+    love.graphics.setFont(fonts.large)
+    setColor(PAL.white)
+    
+    local contractText = tostring(level) .. extra
+    local cWidth = fonts.large:getWidth(contractText)
+    local cx = x + w/2
+    
+    if game.trumpSuit then
+        cWidth = cWidth + 24 -- roughly the space for the pip
+        local tx = cx - cWidth/2
+        love.graphics.print(contractText, tx, y + 36)
+        setColor(C.SUIT_IS_RED[game.trumpSuit] and PAL.red_suit or PAL.white)
+        drawPip(game.trumpSuit, tx + cWidth - 8, y + 54, 12)
+    else
+        contractText = contractText .. " NT"
+        centredText(fonts.large, contractText, cx, y + 54)
+    end
+    
+    -- "4 + 6 = 10 Tricks" line
+    setColor(PAL.gold_hi)
+    love.graphics.setFont(fonts.med)
+    local targetLine = string.format("Target: %d + 6 = %d Tricks", level, game.contractTricks)
+    centredText(fonts.med, targetLine, cx, y + 90)
+    
+    -- Declarer
+    setColor(0.7, 0.75, 0.8)
+    love.graphics.setFont(fonts.small)
+    centredText(fonts.small, "Declarer: " .. C.PLAYER_NAMES[game.declarer], cx, y + 116)
+    
+    -- Separator line
+    setColor(0x3A/255, 0x40/255, 0x4A/255)
+    love.graphics.line(x + 20, y + 135, x + w - 20, y + 135)
+    
+    -- Tricks won so far
+    local dSide = game.declaringSide == "NS" and "N-S" or "E-W"
+    local xSide = game.declaringSide == "NS" and "E-W" or "N-S"
+    
     setColor(PAL.white)
     love.graphics.setFont(fonts.med)
-
-    local function row(label, val, ly)
-        setColor(PAL.text_dim); love.graphics.print(label, x+8, ly)
-        setColor(PAL.white);    love.graphics.print(val,   x+100, ly)
-    end
-
-    local ry = y + 8
-    if game.contract then
-        -- Bid level = tricks - 6 (1..7).  Suit-short includes "NT".
-        local level = (game.contract.tricks or 7) - 6
-        local sn    = C.CONTRACT_SHORT[game.contract.suit]
-        local extra = ""
-        if game.contractRedoubled then extra = " XX"
-        elseif game.contractDoubled then extra = " X" end
-        row("Contract:", level .. sn .. extra, ry); ry = ry+22
-        row("Declarer:", C.PLAYER_NAMES[game.declarer],       ry); ry = ry+22
-        setColor(PAL.text_dim); love.graphics.print("Trump:", x+8, ry)
-        if game.trumpSuit then
-            setColor(C.SUIT_IS_RED[game.trumpSuit] and PAL.red_suit or PAL.white)
-            drawPip(game.trumpSuit, x+110, ry+9, 7)
-        else
-            setColor(PAL.white); love.graphics.print("NT", x+100, ry)
-        end
-        ry = ry+22
-        row("Need:",     game.contractTricks .. " tricks",    ry); ry = ry+22
-        local dSide = game.declaringSide == "NS" and "N-S" or "E-W"
-        local xSide = game.declaringSide == "NS" and "E-W" or "N-S"
-        row(dSide..":",  tostring(game.tricksDeclarer),       ry); ry = ry+22
-        row(xSide..":",  tostring(game.tricksDefender),       ry); ry = ry+22
-    end
-    if game.hcp then
-        ry = ry + 4
-        setColor(PAL.text_dim)
-        love.graphics.setFont(fonts.small)
-        love.graphics.print(string.format("HCP  N:%d  E:%d  S:%d  W:%d",
-            game.hcp[1],game.hcp[2],game.hcp[3],game.hcp[4]), x+8, ry)
-    end
+    local scoreText = string.format("%s: %d      %s: %d", dSide, game.tricksDeclarer, xSide, game.tricksDefender)
+    centredText(fonts.med, scoreText, cx, y + 154)
 end
 
 local function drawScorePanel(game)
@@ -588,7 +604,7 @@ local function drawScorePanel(game)
     love.graphics.setFont(fonts.small)
     setColor(PAL.text_dim)
     local htxt = string.format("Hand #%d", game.seed)
-    love.graphics.print(htxt, x + w - fonts.small:getWidth(htxt) - 8, y+9)
+    love.graphics.print(htxt, x + w - (fonts.small:getWidth(htxt)) - 8, y+9)
     love.graphics.setFont(fonts.med)
     setColor(PAL.white)
     love.graphics.print(string.format("N-S : %d", game.sessionScore[1]), x+8, y+28)
@@ -621,7 +637,7 @@ local function drawPlayerLabels(game)
             setColor(PAL.white)
         end
 
-        local tw = fonts.small:getWidth(label)
+        local tw = (fonts.small:getWidth(label))
         love.graphics.print(label, pt[1] - tw/2, pt[2])
     end
 end
@@ -631,7 +647,7 @@ end
 -- announcing their HCP, then the declaring side and declarer are revealed.
 local function drawSpeechBubble(cx, cy, text, anchor)
     love.graphics.setFont(fonts.med)
-    local tw  = fonts.med:getWidth(text)
+    local tw  = (fonts.med:getWidth(text))
     local pad = 10
     local bw  = tw + pad*2
     local bh  = 32
@@ -651,7 +667,7 @@ local function drawSpeechBubble(cx, cy, text, anchor)
     love.graphics.setLineWidth(1.5)
     love.graphics.rectangle("line", bx, by, bw, bh, 9)
     love.graphics.setLineWidth(1)
-    love.graphics.print(text, bx + pad, by + (bh - fonts.med:getHeight())/2)
+    love.graphics.print(text, bx + pad, by + (bh - (fonts.med:getHeight()))/2)
 end
 
 -- A "bidding card" — small card-shaped element placed on the table by a
@@ -662,97 +678,73 @@ end
 -- For the SUIT decoration we pick the partnership's emblematic suit:
 --   N/S -> Hearts (red),  E/W -> Spades (black).
 -- This gives each side a distinct visual identity on the calling board.
-local BID_CARD_W, BID_CARD_H, BID_CARD_R = 64, 90, 7
+local BID_BLOCK_W, BID_BLOCK_H, BID_BLOCK_R = 76, 50, 6
 
 local function drawBidCard(cx, cy, hcp, suit, rotation, highlight)
     rotation = rotation or 0
     love.graphics.push()
     love.graphics.translate(cx, cy)
     love.graphics.rotate(rotation)
-    local x, y = -BID_CARD_W/2, -BID_CARD_H/2
+    local x, y = -BID_BLOCK_W/2, -BID_BLOCK_H/2
 
     -- Shadow
-    setColor(0, 0, 0, 0.35)
-    love.graphics.rectangle("fill", x+3, y+4, BID_CARD_W, BID_CARD_H, BID_CARD_R)
+    setColor(0, 0, 0, 0.4)
+    love.graphics.rectangle("fill", x+3, y+4, BID_BLOCK_W, BID_BLOCK_H, BID_BLOCK_R)
 
     -- Glow ring if active player
     if highlight then
         setColor(PAL.yellow)
         love.graphics.setLineWidth(3)
-        love.graphics.rectangle("line", x-4, y-4, BID_CARD_W+8, BID_CARD_H+8, BID_CARD_R+2)
+        love.graphics.rectangle("line", x-4, y-4, BID_BLOCK_W+8, BID_BLOCK_H+8, BID_BLOCK_R+2)
         love.graphics.setLineWidth(1)
     end
 
-    -- Card body
-    setColor(PAL.card_face)
-    love.graphics.rectangle("fill", x, y, BID_CARD_W, BID_CARD_H, BID_CARD_R)
-    setColor(0.78, 0.78, 0.78)
-    love.graphics.setLineWidth(1.4)
-    love.graphics.rectangle("line", x+1, y+1, BID_CARD_W-2, BID_CARD_H-2, BID_CARD_R)
+    -- Block body - sleek dark grey/blue plastic tile look
+    setColor(0.15, 0.18, 0.22)
+    love.graphics.rectangle("fill", x, y, BID_BLOCK_W, BID_BLOCK_H, BID_BLOCK_R)
+    
+    -- Inner flat bevel
+    setColor(0.25, 0.28, 0.32)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", x+2, y+2, BID_BLOCK_W-4, BID_BLOCK_H-4, BID_BLOCK_R-1)
     love.graphics.setLineWidth(1)
 
-    local scol = C.SUIT_IS_RED[suit] and PAL.red_suit or PAL.black_suit
+    -- Centre: big HCP value (the "call") in pure white or bright color
+    setColor(PAL.white)
+    love.graphics.setFont(fonts.large)
+    local fw = fonts.large:getWidth(tostring(hcp))
+    local fh = fonts.large:getHeight()
+    love.graphics.print(tostring(hcp), -fw/2, -fh/2 - 4)
 
-    -- Top-left: HCP "rank" + suit pip (mirrors a real card)
-    setColor(scol)
-    love.graphics.setFont(fonts.cardRk)
-    love.graphics.print(tostring(hcp), x+5, y+3)
-    drawPip(suit, x+10, y+24, 4)
-
-    -- Bottom-right: rotated 180° (same as a real playing card)
-    love.graphics.push()
-    love.graphics.translate(x + BID_CARD_W - 5, y + BID_CARD_H - 3)
-    love.graphics.rotate(math.pi)
-    love.graphics.setFont(fonts.cardRk)
-    love.graphics.print(tostring(hcp), 0, 0)
-    drawPip(suit, 5, 22, 4)
-    love.graphics.pop()
-
-    -- Centre: big HCP value (the "call")
-    setColor(scol)
-    love.graphics.setFont(fonts.cardFace)
-    local fw = fonts.cardFace:getWidth(tostring(hcp))
-    local fh = fonts.cardFace:getHeight()
-    love.graphics.print(tostring(hcp), -fw/2, -fh/2)
-
-    -- Tiny "pts" label below the centre number
-    setColor(0.45, 0.45, 0.45)
+    -- Tiny "PTS" label
+    setColor(0.7, 0.7, 0.7)
     love.graphics.setFont(fonts.tiny)
-    centredText(fonts.tiny, "pts", 0, BID_CARD_H/2 - 18)
+    centredText(fonts.tiny, "PTS", 0, BID_BLOCK_H/2 - 12)
 
     love.graphics.pop()
 end
 
--- Empty placeholder card slot (waiting for player to call)
+-- Empty placeholder block slot
 local function drawBidCardSlot(cx, cy, rotation, highlight)
     rotation = rotation or 0
     love.graphics.push()
     love.graphics.translate(cx, cy)
     love.graphics.rotate(rotation)
-    local x, y = -BID_CARD_W/2, -BID_CARD_H/2
+    local x, y = -BID_BLOCK_W/2, -BID_BLOCK_H/2
 
-    setColor(0, 0, 0, 0.30)
-    love.graphics.rectangle("fill", x, y, BID_CARD_W, BID_CARD_H, BID_CARD_R)
+    setColor(0, 0, 0, 0.35)
+    love.graphics.rectangle("fill", x, y, BID_BLOCK_W, BID_BLOCK_H, BID_BLOCK_R)
+    
     if highlight then
         setColor(PAL.yellow)
         love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", x, y, BID_BLOCK_W, BID_BLOCK_H, BID_BLOCK_R)
     else
-        setColor(0.45, 0.45, 0.45, 0.7)
+        setColor(0.45, 0.45, 0.45, 0.5)
         love.graphics.setLineWidth(1)
+        love.graphics.rectangle("line", x, y, BID_BLOCK_W, BID_BLOCK_H, BID_BLOCK_R)
     end
-    -- Dashed-ish border (12 short segments around the rectangle)
-    for i = 0, 11 do
-        local t = i / 12
-        love.graphics.points(x + t * BID_CARD_W, y)
-    end
-    love.graphics.rectangle("line", x, y, BID_CARD_W, BID_CARD_H, BID_CARD_R)
     love.graphics.setLineWidth(1)
-
-    if highlight then
-        setColor(PAL.yellow)
-        love.graphics.setFont(fonts.small)
-        centredText(fonts.small, "?", 0, -5)
-    end
     love.graphics.pop()
 end
 
@@ -777,7 +769,7 @@ function R.drawDealing(game)
     for p, pt in pairs(labelPos) do
         local name = C.PLAYER_NAMES[p]
         if game.auction and game.auction.dealer == p then name = name .. " (D)" end
-        local tw = fonts.small:getWidth(name)
+        local tw = (fonts.small:getWidth(name))
         love.graphics.print(name, pt[1] - tw/2, pt[2])
     end
 
@@ -1091,7 +1083,7 @@ function R.drawAuction(game, mx, my, selectedBid)
         if p == C.SOUTH then
             name = name .. string.format("  (%d HCP)", hcp)
         end
-        local tw = fonts.small:getWidth(name)
+        local tw = (fonts.small:getWidth(name))
         love.graphics.print(name, pt[1] - tw/2, pt[2])
     end
 
@@ -1271,7 +1263,7 @@ function R.drawBidding(game, selSuit, selTricks, mx, my)
 
     love.graphics.setFont(fonts.tiny)
     setColor(0.9, 0.7, 0.3)
-    local dw = fonts.tiny:getWidth("DUMMY")
+    local dw = (fonts.tiny:getWidth("DUMMY"))
     love.graphics.print("DUMMY", C.SW/2 - dw/2, 126)
 
     drawScorePanel(game)
@@ -1368,9 +1360,84 @@ function R.drawBidding(game, selSuit, selTricks, mx, my)
 end
 
 -- ── Result screen ──────────────────────────────────────────────────────────
-function R.drawResult(game, mx, my)
+function R.drawResult(game, setupState, mx, my)
     -- Fire confetti once on entry if the human won
-    maybeStartConfetti(game.humanWon, game.state)
+    maybeStartConfetti(game)
+    
+    if not game.resultSeedPrepared then
+        game.resultSeedPrepared = true
+        if setupState.random then
+            setupState.seedBuf = tostring(love.math.random(1, 99999))
+        else
+            setupState.seedBuf = tostring(game.seed + 1)
+        end
+    end
+
+    if game.matchMode == "7board" then
+        R.drawGame(game, nil, nil, nil, nil)
+        
+        setColor(0, 0, 0, 0.65)
+        love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
+        
+        local bw, bh = 700, 420
+        local bx, by = C.SW/2 - bw/2, C.SH/2 - bh/2
+        
+        setColor(0.06, 0.07, 0.11, 0.94)
+        love.graphics.rectangle("fill", bx, by, bw, bh, 18)
+        
+        local won = game.humanWon
+        local borderColor = won and PAL.yellow or {0.85, 0.25, 0.25}
+        setColor(borderColor)
+        love.graphics.setLineWidth(4)
+        love.graphics.rectangle("line", bx, by, bw, bh, 18)
+        love.graphics.setLineWidth(1)
+        
+        setColor(PAL.yellow)
+        centredText(fonts.title, "BOARD " .. tostring(game.matchBoard) .. " OF 7 COMPLETE", C.SW/2, by + 55)
+        
+        setColor(won and {0.35, 0.90, 0.45} or {0.95, 0.35, 0.35})
+        local resultStr = won and "NORTH-SOUTH WINS THE BOARD!" or "EAST-WEST WINS THE BOARD!"
+        centredText(fonts.large, resultStr, C.SW/2, by + 105)
+        
+        local res = game.handResult
+        setColor(PAL.white)
+        centredText(fonts.med, res.desc, C.SW/2, by + 145)
+        
+        setColor(PAL.text_dim)
+        love.graphics.setFont(fonts.med)
+        love.graphics.print("TEAM", C.SW/2 - 240, by + 195)
+        centredText(fonts.med, "BOARDS WON", C.SW/2, by + 195)
+        love.graphics.print("TOTAL POINTS", C.SW/2 + 130, by + 195)
+        
+        setColor(0.3, 0.4, 0.5, 0.4)
+        love.graphics.line(C.SW/2 - 250, by + 225, C.SW/2 + 250, by + 225)
+        
+        setColor(PAL.white)
+        love.graphics.setFont(fonts.large)
+        love.graphics.print("North-South (NS)", C.SW/2 - 240, by + 240)
+        centredText(fonts.large, tostring(game.matchWins and game.matchWins[1] or 0), C.SW/2, by + 240)
+        love.graphics.print(tostring(game.sessionScore[1]) .. " pts", C.SW/2 + 130, by + 240)
+        
+        love.graphics.print("East-West (EW)", C.SW/2 - 240, by + 285)
+        centredText(fonts.large, tostring(game.matchWins and game.matchWins[2] or 0), C.SW/2, by + 285)
+        love.graphics.print(tostring(game.sessionScore[2]) .. " pts", C.SW/2 + 130, by + 285)
+        
+        setColor(0.3, 0.4, 0.5, 0.4)
+        love.graphics.line(C.SW/2 - 250, by + 330, C.SW/2 + 330, by + 330)
+        
+        setColor(PAL.text_dim)
+        centredText(fonts.small, "Match Start Seed: #" .. tostring(game.matchStartSeed or game.seed) .. "     Board Seed: #" .. tostring(game.seed), C.SW/2, by + 352)
+        
+        setColor(PAL.yellow)
+        local promptText = game.autoSouth and "Auto-advancing in a few seconds..." or "Click anywhere to randomize and deal next board"
+        centredText(fonts.med, promptText, C.SW/2, by + 382)
+        
+        local hits = {}
+        hits[1] = {type = "next_board_anywhere", x = 0, y = 0, w = C.SW, h = C.SH}
+        
+        if won then drawConfetti() end
+        return hits
+    end
 
     setColor(PAL.felt)
     love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
@@ -1458,19 +1525,56 @@ function R.drawResult(game, mx, my)
                       game.tricksDeclarer, game.contractTricks, game.seed),
         C.SW/2, by + 162)
     setColor(PAL.white)
+    local sessionLabel = game.matchMode == "7board" and string.format("Match Score (Board %d/7)", game.matchBoard or 1) or "Session Score"
     centredText(fonts.med,
-        string.format("Session   N-S: %d pts     E-W: %d pts",
-                      game.sessionScore[1], game.sessionScore[2]),
+        string.format("%s   N-S: %d pts     E-W: %d pts",
+                      sessionLabel, game.sessionScore[1], game.sessionScore[2]),
         C.SW/2, by + 194)
 
-    -- Buttons (anchored to bottom of the banner, well below the score line)
-    local btnY = by + bh - 70
-    local _, x1, y1, w1, h1 = button("NEW GAME",   C.SW/2 - 180, btnY, 170, 50, mx, my,
-        {0.15, 0.55, 0.22}, {0.22, 0.78, 0.30})
-    hits[#hits+1] = {type="newgame", x=x1, y=y1, w=w1, h=h1}
-    local _, x2, y2, w2, h2 = button("Main Menu",  C.SW/2 + 10,  btnY, 170, 50, mx, my,
-        PAL.btn_blue, PAL.btn_hover)
-    hits[#hits+1] = {type="menu",    x=x2, y=y2, w=w2, h=h2}
+    -- ── Seed input row (for Next Hand) ──
+    local rowY = by + 224
+    setColor(PAL.white)
+    love.graphics.setFont(fonts.med)
+    love.graphics.print("Next Seed:", C.SW/2 - 170, rowY + 6)
+
+    local boxX, boxY, boxW, boxH = C.SW/2 - 70, rowY, 120, 36
+    local focus = setupState.seedFocus
+    setColor(focus and {0.20, 0.30, 0.50} or {0.12, 0.18, 0.30})
+    love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 6)
+    setColor(focus and PAL.yellow or {0.4, 0.5, 0.7})
+    love.graphics.setLineWidth(focus and 2 or 1)
+    love.graphics.rectangle("line", boxX, boxY, boxW, boxH, 6)
+    love.graphics.setLineWidth(1)
+    setColor(PAL.white)
+    love.graphics.setFont(fonts.large)
+    local txt = setupState.seedBuf
+    if txt == "" then setColor(PAL.text_dim); txt = "..." end
+    love.graphics.print(txt, boxX + 10, boxY + 4)
+    if focus and (math.floor(love.timer.getTime()*2) % 2 == 0) then
+        setColor(PAL.yellow)
+        local cw = (fonts.large:getWidth(setupState.seedBuf or ""))
+        love.graphics.rectangle("fill", boxX + 10 + cw + 2, boxY + 8, 2, boxH - 16)
+    end
+    hits[#hits+1] = {type="seedbox", x=boxX, y=boxY, w=boxW, h=boxH}
+
+    local btnRandX = boxX + boxW + 12
+    local _, rx, ry, rw, rh = button("Randomize", btnRandX, rowY, 130, boxH, mx, my, PAL.btn_green, PAL.btn_green_h)
+    hits[#hits+1] = {type="random_now", x=rx, y=ry, w=rw, h=rh}
+
+    -- Buttons (anchored to bottom of the banner)
+    local btnY = by + bh - 60
+    local _, r1x, r1y, r1w, r1h = button("Replay Hand", C.SW/2 - 260, btnY, 160, 50, mx, my, PAL.btn_blue, PAL.btn_hover)
+    hits[#hits+1] = {type="replay", x=r1x, y=r1y, w=r1w, h=r1h}
+    
+    local nextText = game.matchMode == "7board" and (game.matchBoard >= 7 and "MATCH SUMMARY" or "Next Board ("..tostring(game.matchBoard+1).."/7)") or "Next Hand"
+    local nextCol = {0.15, 0.55, 0.22}
+    local nextHov = {0.22, 0.78, 0.30}
+    
+    local _, n1x, n1y, n1w, n1h = button(nextText, C.SW/2 - 80, btnY, 160, 50, mx, my, nextCol, nextHov)
+    hits[#hits+1] = {type="next_hand", x=n1x, y=n1y, w=n1w, h=n1h}
+    
+    local _, m1x, m1y, m1w, m1h = button("Main Menu", C.SW/2 + 100, btnY, 160, 50, mx, my, PAL.btn_blue, PAL.btn_hover)
+    hits[#hits+1] = {type="menu", x=m1x, y=m1y, w=m1w, h=m1h}
 
     -- Confetti above all on win for the wow effect
     if won then drawConfetti() end
@@ -1498,11 +1602,15 @@ function R.drawMainMenu(mx, my)
     local hits = {}
     local cx = C.SW/2
 
-    local _, x,y,w,h = button("NEW GAME", cx - 130, 340, 260, 60, mx, my,
+    local _, x,y,w,h = button("NEW GAME", cx - 130, 310, 260, 60, mx, my,
                               {0.15, 0.55, 0.22}, {0.22, 0.78, 0.30})
     hits[#hits+1] = {type="newgame", x=x,y=y,w=w,h=h}
 
-    local _, x2,y2,w2,h2 = button("Quit", cx - 80, 430, 160, 44, mx, my,
+    local _, ox,oy,ow,oh = button("Options", cx - 100, 390, 200, 48, mx, my,
+                                  PAL.btn_blue, PAL.btn_hover)
+    hits[#hits+1] = {type="options", x=ox,y=oy,w=ow,h=oh}
+
+    local _, x2,y2,w2,h2 = button("Quit", cx - 80, 460, 160, 44, mx, my,
                                   PAL.btn_blue, PAL.btn_hover)
     hits[#hits+1] = {type="quit", x=x2,y=y2,w=w2,h=h2}
 
@@ -1531,12 +1639,11 @@ function R.drawNewGameSetup(setupState, mx, my)
     setColor(PAL.white)
     love.graphics.setFont(fonts.med)
     local seedLabel = "Hand seed:"
-    local lblW = fonts.med:getWidth(seedLabel)
-    local rowY = 175
-    love.graphics.print(seedLabel, C.SW/2 - 180, rowY + 6)
+    local rowY = 160
+    love.graphics.print(seedLabel, C.SW/2 - 250, rowY + 6)
 
     -- Text box for the seed (typed input)
-    local boxX, boxY, boxW, boxH = C.SW/2 - 180 + lblW + 14, rowY, 150, 36
+    local boxX, boxY, boxW, boxH = C.SW/2 - 130, rowY, 120, 36
     local focus = setupState.seedFocus
     setColor(focus and {0.20, 0.30, 0.50} or {0.12, 0.18, 0.30})
     love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 6)
@@ -1547,33 +1654,42 @@ function R.drawNewGameSetup(setupState, mx, my)
     setColor(PAL.white)
     love.graphics.setFont(fonts.large)
     local txt = setupState.seedBuf
-    if txt == "" then setColor(PAL.text_dim); txt = "type number..." end
+    if txt == "" then setColor(PAL.text_dim); txt = "..." end
     love.graphics.print(txt, boxX + 10, boxY + 4)
     -- Caret
     if focus and (math.floor(love.timer.getTime()*2) % 2 == 0) then
         setColor(PAL.yellow)
-        local cw = fonts.large:getWidth(setupState.seedBuf or "")
+        local cw = (fonts.large:getWidth(setupState.seedBuf or ""))
         love.graphics.rectangle("fill", boxX + 10 + cw + 2, boxY + 8, 2, boxH - 16)
     end
     hits[#hits+1] = {type="seedbox", x=boxX, y=boxY, w=boxW, h=boxH}
 
-    -- Random toggle (re-rolls a fresh seed every Deal)
-    local randX = boxX + boxW + 16
-    local randCol  = setupState.random and PAL.btn_green   or PAL.btn_blue
-    local randHCol = setupState.random and PAL.btn_green_h or PAL.btn_hover
-    local _, x,y,w,h = button(
-        setupState.random and "Randomize: ON" or "Randomize: OFF",
-        randX, rowY, 170, boxH, mx, my, randCol, randHCol)
-    hits[#hits+1] = {type="random", x=x,y=y,w=w,h=h}
+    -- Dedicated Randomize Seed Now button
+    local btnRandX = boxX + boxW + 12
+    local _, rx, ry, rw, rh = button("Randomize", btnRandX, rowY, 130, boxH, mx, my, PAL.btn_green, PAL.btn_green_h)
+    hits[#hits+1] = {type="random_now", x=rx, y=ry, w=rw, h=rh}
 
-    setColor(PAL.text_dim)
-    love.graphics.setFont(fonts.tiny)
-    centredText(fonts.tiny,
-        "Type a number, or turn Randomize ON to roll a new seed on Deal.",
-        C.SW/2, rowY + boxH + 10)
+    -- Auto-Randomize Next Toggle
+    local togX = btnRandX + rw + 12
+    local randCol  = setupState.random and PAL.btn_green or PAL.btn_blue
+    local randHCol = setupState.random and PAL.btn_green_h or PAL.btn_hover
+    local _, tx, ty, tw, th = button(
+        setupState.random and "Auto-Next: RANDOM" or "Auto-Next: +1",
+        togX, rowY, 160, boxH, mx, my, randCol, randHCol)
+    hits[#hits+1] = {type="random_toggle", x=tx, y=ty, w=tw, h=th}
+
+    -- ── Match Mode Toggle ──
+    local matchRowY = rowY + boxH + 20
+    local isMatch = setupState.matchMode == "7board"
+    local matchCol  = isMatch and {0.6, 0.2, 0.6} or PAL.btn_blue
+    local matchHCol = isMatch and {0.7, 0.3, 0.7} or PAL.btn_hover
+    local _, mmx,mmy,mmw,mmh = button(
+        isMatch and "Match Mode: 7 Boards" or "Match Mode: Single Game",
+        C.SW/2 - 190, matchRowY, 380, 32, mx, my, matchCol, matchHCol)
+    hits[#hits+1] = {type="match_toggle", x=mmx, y=mmy, w=mmw, h=mmh}
 
     -- ── Auto-play South toggle (CPU plays your seat too) ──
-    local autoRowY = rowY + boxH + 26
+    local autoRowY = matchRowY + 44
     local autoCol  = setupState.autoSouth and {0.70, 0.40, 0.10} or PAL.btn_blue
     local autoHCol = setupState.autoSouth and {0.85, 0.50, 0.18} or PAL.btn_hover
     local _, ax,ay,aw,ah = button(
@@ -1583,29 +1699,30 @@ function R.drawNewGameSetup(setupState, mx, my)
     hits[#hits+1] = {type="autosouth", x=ax, y=ay, w=aw, h=ah}
 
     -- ── Difficulty rows ──
+    local diffTitleY = autoRowY + 44
     setColor(PAL.white)
     love.graphics.setFont(fonts.med)
-    centredText(fonts.med, "AI Difficulty", C.SW/2, 284)
+    centredText(fonts.med, "AI Difficulty", C.SW/2, diffTitleY)
 
     local aiPlayers = {C.NORTH, C.EAST, C.WEST}
     for row, p in ipairs(aiPlayers) do
-        local ry = 304 + (row-1) * 44
+        local ry = diffTitleY + 20 + (row-1) * 44
         setColor(PAL.text_dim)
         love.graphics.setFont(fonts.small)
-        love.graphics.print(C.PLAYER_NAMES[p], C.SW/2 - 200, ry + 10)
+        love.graphics.print(C.PLAYER_NAMES[p], C.SW/2 - 260, ry + 10)
 
-        for d = 1, 3 do
-            local bx    = C.SW/2 - 100 + (d-1) * 100
+        for d = 1, 5 do
+            local bx    = C.SW/2 - 190 + (d-1) * 76
             local active= setupState.difficulty[p] == d
             local acol  = active and PAL.btn_green   or PAL.btn_blue
             local ahcol = active and PAL.btn_green_h or PAL.btn_hover
-            local _, x,y,w,h = button(C.DIFF_NAMES[d], bx, ry, 88, 32, mx, my, acol, ahcol)
+            local _, x,y,w,h = button(C.DIFF_NAMES[d], bx, ry, 70, 32, mx, my, acol, ahcol)
             hits[#hits+1] = {type="diff", player=p, diff=d, x=x,y=y,w=w,h=h}
         end
     end
 
     -- ── Settings row: intro animation, sound, card-back theme ──
-    local setY = 452
+    local setY = diffTitleY + 20 + 3 * 44 + 16
     -- Intro animation toggle
     local introCol  = setupState.introAnim and PAL.btn_green   or PAL.btn_blue
     local introHCol = setupState.introAnim and PAL.btn_green_h or PAL.btn_hover
@@ -1657,6 +1774,216 @@ function R.drawNewGameSetup(setupState, mx, my)
     hits[#hits+1] = {type="back", x=bx2,y=by2,w=bw2,h=bh2}
 
     return hits
+end
+
+-- ── Match Summary Screen ───────────────────────────────────────────────────
+function R.drawMatchSummary(game, mx, my)
+    setColor(PAL.felt)
+    love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
+    setColor(PAL.felt_inner)
+    love.graphics.ellipse("fill", C.SW/2, C.SH/2, C.SW*0.42, C.SH*0.48)
+
+    local nsScore = game.sessionScore[1]
+    local ewScore = game.sessionScore[2]
+    local nsWon = nsScore > ewScore
+    local isTie = nsScore == ewScore
+    local borderColor = isTie and PAL.yellow or (nsWon and {0.2, 0.8, 0.3} or {0.8, 0.2, 0.2})
+
+    if game.showMatchDetailsTable then
+        local bw, bh = 1000, 560
+        local bx, by = C.SW/2 - bw/2, C.SH/2 - bh/2
+        
+        setColor(0.04, 0.06, 0.08, 0.95)
+        love.graphics.rectangle("fill", bx, by, bw, bh, 20)
+        
+        setColor(borderColor)
+        love.graphics.setLineWidth(4)
+        love.graphics.rectangle("line", bx, by, bw, bh, 20)
+        love.graphics.setLineWidth(1)
+        
+        setColor(PAL.yellow)
+        centredText(fonts.large, "7-BOARD MATCH DETAILS (TRAVELER SHEET)", C.SW/2, by + 40)
+        
+        -- Header Row Background
+        setColor(0.12, 0.16, 0.22, 0.6)
+        love.graphics.rectangle("fill", bx + 30, by + 75, bw - 60, 36, 6)
+        
+        -- Table headers
+        local tx = bx + 40
+        love.graphics.setFont(fonts.med)
+        setColor(PAL.white)
+        
+        local colCenters = {
+            tx + 40,        -- BOARD
+            tx + 140,       -- SEED
+            tx + 290,       -- CONTRACT
+            tx + 450,       -- DECLARER
+            tx + 600,       -- TRICKS
+            tx + 740,       -- POINTS
+            tx + 860        -- WINNER
+        }
+        
+        centredText(fonts.med, "BOARD", colCenters[1], by + 93)
+        centredText(fonts.med, "SEED", colCenters[2], by + 93)
+        centredText(fonts.med, "CONTRACT", colCenters[3], by + 93)
+        centredText(fonts.med, "DECLARER", colCenters[4], by + 93)
+        centredText(fonts.med, "TRICKS", colCenters[5], by + 93)
+        centredText(fonts.med, "POINTS", colCenters[6], by + 93)
+        centredText(fonts.med, "WINNER", colCenters[7], by + 93)
+        
+        -- Render data rows
+        love.graphics.setFont(fonts.med)
+        for i = 1, 7 do
+            local ry = by + 120 + (i - 1) * 44
+            
+            -- Alternating row colors
+            if i % 2 == 1 then
+                setColor(1, 1, 1, 0.02)
+            else
+                setColor(1, 1, 1, 0.05)
+            end
+            love.graphics.rectangle("fill", bx + 30, ry, bw - 60, 40, 4)
+            
+            local detail = game.matchBoardDetails and game.matchBoardDetails[i]
+            if detail then
+                -- Board No
+                setColor(PAL.text_dim)
+                centredText(fonts.med, tostring(detail.board), colCenters[1], ry + 20)
+                
+                -- Seed
+                centredText(fonts.med, "#" .. tostring(detail.seed), colCenters[2], ry + 20)
+                
+                -- Contract
+                local contractStr = "Pass"
+                if detail.contract then
+                    local lvl = (detail.contract.tricks or 7) - 6
+                    local denom = C.CONTRACT_SHORT[detail.contract.suit] or "NT"
+                    local extra = ""
+                    if detail.contractRedoubled then extra = " XX"
+                    elseif detail.contractDoubled then extra = " X" end
+                    contractStr = tostring(lvl) .. denom .. extra
+                end
+                setColor(PAL.white)
+                centredText(fonts.med, contractStr, colCenters[3], ry + 20)
+                
+                -- Declarer
+                setColor(PAL.text_dim)
+                local declName = detail.declarer and C.PLAYER_NAMES[detail.declarer] or "—"
+                centredText(fonts.med, declName, colCenters[4], ry + 20)
+                
+                -- Tricks Made / Target
+                local tricksStr = "—"
+                if detail.contract then
+                    tricksStr = string.format("%d / %d", detail.tricksDeclarer, detail.contractTricks)
+                end
+                centredText(fonts.med, tricksStr, colCenters[5], ry + 20)
+                
+                -- Points
+                local ptsStr = tostring(detail.points) .. " pts"
+                centredText(fonts.med, ptsStr, colCenters[6], ry + 20)
+                
+                -- Winner
+                local winSide = detail.winnerSide or "—"
+                if winSide == "NS" then
+                    setColor(0.2, 0.8, 0.3) -- Vibrant green
+                elseif winSide == "EW" then
+                    setColor(0.9, 0.3, 0.3) -- Coral red
+                else
+                    setColor(PAL.text_dim)
+                end
+                centredText(fonts.med, winSide, colCenters[7], ry + 20)
+            else
+                -- Not played yet
+                setColor(PAL.text_dim)
+                centredText(fonts.med, tostring(i), colCenters[1], ry + 20)
+                centredText(fonts.med, "—", colCenters[2], ry + 20)
+                centredText(fonts.med, "—", colCenters[3], ry + 20)
+                centredText(fonts.med, "—", colCenters[4], ry + 20)
+                centredText(fonts.med, "—", colCenters[5], ry + 20)
+                centredText(fonts.med, "—", colCenters[6], ry + 20)
+                centredText(fonts.med, "—", colCenters[7], ry + 20)
+            end
+        end
+        
+        -- Draw buttons
+        local hits = {}
+        local btnY = by + bh - 70
+        
+        -- Back to Summary
+        local _, bxS, byS, bwS, bhS = button("< Summary", C.SW/2 - 380, btnY, 160, 50, mx, my, {0.18, 0.35, 0.48}, {0.24, 0.44, 0.60})
+        hits[#hits+1] = {type="hide_table", x=bxS, y=byS, w=bwS, h=bhS}
+        
+        -- Replay Match
+        local _, rx, ry, rw, rh = button("Replay Match", C.SW/2 - 200, btnY, 170, 50, mx, my, PAL.btn_blue, PAL.btn_hover)
+        hits[#hits+1] = {type="replay_match", x=rx, y=ry, w=rw, h=rh}
+        
+        -- New Match
+        local _, nx, ny, nw, nh = button("New Match", C.SW/2 - 10, btnY, 160, 50, mx, my, {0.15, 0.55, 0.22}, {0.22, 0.78, 0.30})
+        hits[#hits+1] = {type="new_match", x=nx, y=ny, w=nw, h=nh}
+        
+        -- Main Menu
+        local _, bx1, by1, bw1, bh1 = button("Main Menu", C.SW/2 + 170, btnY, 170, 50, mx, my, PAL.btn_red, PAL.btn_hover)
+        hits[#hits+1] = {type="menu", x=bx1, y=by1, w=bw1, h=bh1}
+        
+        if nsWon then drawConfetti() end
+        
+        return hits
+    else
+        local bw, bh = 700, 420
+        local bx, by = C.SW/2 - bw/2, C.SH/2 - bh/2
+        
+        setColor(0, 0, 0, 0.82)
+        love.graphics.rectangle("fill", bx, by, bw, bh, 20)
+        
+        setColor(borderColor)
+        love.graphics.setLineWidth(4)
+        love.graphics.rectangle("line", bx, by, bw, bh, 20)
+        love.graphics.setLineWidth(1)
+        
+        setColor(PAL.yellow)
+        centredText(fonts.title, "MATCH COMPLETE", C.SW/2, by + 45)
+        
+        setColor(PAL.text_dim)
+        centredText(fonts.med, "7-Board Match Results", C.SW/2, by + 90)
+        
+        local nsWins = game.matchWins and game.matchWins[1] or 0
+        local ewWins = game.matchWins and game.matchWins[2] or 0
+        
+        setColor(PAL.white)
+        centredText(fonts.large, string.format("N-S: %d pts (%d Wins)", nsScore, nsWins), C.SW/2 - 140, by + 145)
+        centredText(fonts.large, string.format("E-W: %d pts (%d Wins)", ewScore, ewWins), C.SW/2 + 140, by + 145)
+        
+        setColor(borderColor)
+        local resultText = "IT'S A TIE!"
+        if not isTie then
+            resultText = (nsWon and "NORTH-SOUTH" or "EAST-WEST") .. " WINS THE MATCH!"
+        end
+        centredText(fonts.title, resultText, C.SW/2, by + 205, bw - 60)
+        
+        setColor(PAL.text_dim)
+        centredText(fonts.small, "Match Start Seed: #" .. tostring(game.matchStartSeed or game.seed), C.SW/2, by + 265)
+        
+        local hits = {}
+        
+        -- Reveal Table button (wide and sleek)
+        local _, tx, ty, tw, th = button("Reveal Table", C.SW/2 - 110, by + 295, 220, 38, mx, my, {0.18, 0.35, 0.48}, {0.24, 0.44, 0.60})
+        hits[#hits+1] = {type="reveal_table", x=tx, y=ty, w=tw, h=th}
+        
+        local btnY = by + bh - 70
+        
+        local _, rx, ry, rw, rh = button("Replay Match", C.SW/2 - 270, btnY, 170, 50, mx, my, PAL.btn_blue, PAL.btn_hover)
+        hits[#hits+1] = {type="replay_match", x=rx, y=ry, w=rw, h=rh}
+        
+        local _, nx, ny, nw, nh = button("New Match", C.SW/2 - 80, btnY, 160, 50, mx, my, {0.15, 0.55, 0.22}, {0.22, 0.78, 0.30})
+        hits[#hits+1] = {type="new_match", x=nx, y=ny, w=nw, h=nh}
+        
+        local _, bx1, by1, bw1, bh1 = button("Main Menu", C.SW/2 + 100, btnY, 170, 50, mx, my, PAL.btn_red, PAL.btn_hover)
+        hits[#hits+1] = {type="menu", x=bx1, y=by1, w=bw1, h=bh1}
+        
+        if nsWon then drawConfetti() end
+        
+        return hits
+    end
 end
 
 return R
