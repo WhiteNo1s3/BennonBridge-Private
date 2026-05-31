@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 350" width="100%" height="100%">
+    <rect x="5" y="5" width="240" height="340" rx="15" fill="#FCFAF2" stroke="#d0d0d0" stroke-width="1"/>
+    <rect x="15" y="15" width="220" height="320" rx="8" fill="none" stroke="#EAE0C8" stroke-width="1.5" opacity="0.8"/>
+    
+    <g fill="#E91E63">
+        <text x="32" y="52" font-family="Arial, sans-serif" font-size="42" font-weight="bold" text-anchor="middle" letter-spacing="-2">J</text>
+        <g transform="translate(20, 58) scale(1)">
+            <path d="M12 2L2 12l10 10 10-10L12 2z" />
+        </g>
+    </g>
+
+    <g fill="#E91E63" transform="rotate(180 125 175)">
+        <text x="32" y="52" font-family="Arial, sans-serif" font-size="42" font-weight="bold" text-anchor="middle" letter-spacing="-2">J</text>
+        <g transform="translate(20, 58) scale(1)">
+            <path d="M12 2L2 12l10 10 10-10L12 2z" />
+        </g>
+    </g>
+
+    <g fill="#E91E63">
+        <g transform="translate(83.0, 133.0) scale(3.5)"><path d="M12 2L2 12l10 10 10-10L12 2z" /></g>
+    </g>
+</svg>

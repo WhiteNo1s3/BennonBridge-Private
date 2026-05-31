@@ -1,0 +1,167 @@
+-- Animation system for Bridge.
+--
+-- Currently drives the deal animation:
+--   * For each of the 52 cards we compute a destination (the position the
+--     card will eventually occupy inside its owner's fanned hand on the
+--     felt) and a start delay (cards are dealt one at a time, very fast,
+--     clockwise from the dealer).
+--   * Each frame we advance every "in flight" card from the deck pile to
+--     its destination. Active cards play a "cardgive" sound the moment
+--     they enter flight.
+--   * When the last card finishes its arc, the animation is "done" and the
+--     caller (Game) transitions out of STATE_DEALING.
+
+local C  = require("src.constants")
+local S  = require("src.sound")
+
+local A = {}
+
+A.enabled = true        -- "intro animation" master toggle (settings)
+
+-- Public state used by the renderer
+A.active           = false
+A.cards            = {}       -- per-card animation records (52 of them)
+A.elapsed          = 0
+A.totalDuration    = 0
+
+-- Tunables -------------------------------------------------------------------
+local CARD_TIME    = 0.16     -- per-card flight time (linear interp)
+local CARD_DELAY   = 0.04     -- stagger between successive deals
+local SOUND_PITCH  = 2.6      -- speedy "tick" for each card
+
+-- Where the dealer pile sits before the deal
+A.DECK_X = C.SW / 2
+A.DECK_Y = C.SH / 2
+
+-- Destination positions for each card in a horizontal/vertical fan.
+-- These mirror the placement logic in render.drawHorizHand /drawVertHand so
+-- the cards land exactly where they'll sit during play.
+local CARD_W       = C.CARD_W
+local CARD_H       = C.CARD_H
+local OVERLAP      = C.CARD_OVERLAP
+
+local function horizFanXY(baseCX, baseCY, slot, total)
+    -- slot is 1..total. mirrors drawHorizHand layout.
+    local span = (total - 1) * OVERLAP + CARD_W
+    local x0   = baseCX - span / 2
+    return x0 + (slot - 1) * OVERLAP, baseCY
+end
+
+local function vertFanXY(baseCX, baseCY, slot, total, angle)
+    local span = (total - 1) * OVERLAP + CARD_W
+    local p0   = -span / 2
+    local p    = p0 + (slot - 1) * OVERLAP
+    -- For a vertical hand we treat the fan along the local x-axis then rotate
+    local dx, dy
+    if angle > 0 then        -- East: rotated +90°, fan runs top->bottom
+        dx, dy = 0, p
+    else                     -- West: rotated -90°, fan runs bottom->top
+        dx, dy = 0, -p
+    end
+    return baseCX + dx, baseCY + dy
+end
+
+-- Public: start a fresh deal animation for the four hands.
+-- `hands`: array indexed 1..4, each a table of 13 card descriptors {rank,suit}.
+-- `dealer`: which player gets the first card; we then proceed clockwise.
+function A.startDeal(hands, dealer)
+    A.active        = true
+    A.elapsed       = 0
+    A.cards         = {}
+
+    -- Build the destination for every card. Then build the per-card animation
+    -- entries in deal order: dealer's LHO gets nothing first; we deal from
+    -- dealer's LHO clockwise. Actually in bridge the dealer deals one card at
+    -- a time starting with their LHO. We'll just deal in clockwise order from
+    -- the dealer's LHO for visual flavour.
+    local order = {C.NEXT[dealer], C.NEXT[C.NEXT[dealer]],
+                   C.NEXT[C.NEXT[C.NEXT[dealer]]], dealer}
+
+    -- Player position centers + orientation (matches render)
+    local posOf = {
+        [C.NORTH] = {cx = C.SW/2,   cy = 18 + CARD_H/2,         angle = 0,         horiz = true},
+        [C.SOUTH] = {cx = C.SW/2,   cy = C.SH - 18 - CARD_H/2,  angle = 0,         horiz = true},
+        [C.EAST]  = {cx = C.SW-55,  cy = C.SH/2,                angle = math.pi/2, horiz = false},
+        [C.WEST]  = {cx = 55,       cy = C.SH/2,                angle =-math.pi/2, horiz = false},
+    }
+
+    -- Issue cards one at a time, advancing the player after each
+    local slots = {[1] = 0, [2] = 0, [3] = 0, [4] = 0}
+    local pIdx  = 1
+    local total = 52
+    for i = 1, total do
+        local player = order[((i - 1) % 4) + 1]
+        slots[player] = slots[player] + 1
+
+        local pos = posOf[player]
+        local toX, toY
+        if pos.horiz then
+            toX, toY = horizFanXY(pos.cx, pos.cy, slots[player], 13)
+        else
+            toX, toY = vertFanXY(pos.cx, pos.cy, slots[player], 13, pos.angle)
+        end
+
+        A.cards[i] = {
+            player = player,
+            slot   = slots[player],
+            fromX  = A.DECK_X,
+            fromY  = A.DECK_Y,
+            toX    = toX,
+            toY    = toY,
+            angle  = pos.angle,
+            delay  = (i - 1) * CARD_DELAY,
+            t      = 0,           -- 0..1 interpolation
+            started = false,      -- track sound trigger
+            done    = false,
+        }
+    end
+
+    A.totalDuration = (total - 1) * CARD_DELAY + CARD_TIME + 0.10
+end
+
+function A.update(dt)
+    if not A.active then return end
+    A.elapsed = A.elapsed + dt
+
+    local allDone = true
+    for _, c in ipairs(A.cards) do
+        local local_t = A.elapsed - c.delay
+        if local_t >= 0 and not c.started then
+            c.started = true
+            S.playCardGive(SOUND_PITCH)
+        end
+        if local_t >= CARD_TIME then
+            c.t    = 1
+            c.done = true
+        elseif local_t > 0 then
+            c.t = local_t / CARD_TIME
+            allDone = false
+        else
+            allDone = false      -- not yet started
+        end
+    end
+
+    if allDone or A.elapsed >= A.totalDuration then
+        A.active = false
+    end
+end
+
+-- Returns true if a deal animation is currently running.
+function A.isDealing()
+    return A.active
+end
+
+-- Current (x, y, angle) for card i during the deal. The renderer queries this
+-- to draw the card back at the interpolated position.
+function A.cardPos(i)
+    local c = A.cards[i]
+    if not c then return nil end
+    -- Ease-out so the card decelerates as it lands
+    local t = c.t
+    local e = 1 - (1 - t) * (1 - t)
+    local x = c.fromX + (c.toX - c.fromX) * e
+    local y = c.fromY + (c.toY - c.fromY) * e
+    return x, y, c.angle, c.player
+end
+
+return A
