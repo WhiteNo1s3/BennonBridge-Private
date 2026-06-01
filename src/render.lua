@@ -2,8 +2,39 @@
 
 local C    = require("src.constants")
 local AI   = require("src.ai")
+local Mood = require("src.mood")
 
 local R = {}
+
+-- ── Active mood ────────────────────────────────────────────────────────────
+-- The mood drives the felt tint AND the static vector decorations on every
+-- backdrop. R.setMood is called from main.lua whenever the player tweaks
+-- the weather toggle / manual mood picker in the setup screen; the cached
+-- settings let us auto-refresh the active mood as wall-clock time crosses
+-- into a new band while the game is running.
+local activeMood    = Mood.classic
+local cachedSettings = nil
+local lastClockHour  = nil
+
+function R.setMood(settings)
+    cachedSettings = settings
+    activeMood     = Mood.choose(settings)
+    lastClockHour  = (os.date("*t") or {hour = 0}).hour
+end
+
+-- Called from R.update so a long-running session re-themes itself as the
+-- clock rolls into sunrise / noon / afternoon / evening / night.
+local function refreshClockMood()
+    if not cachedSettings or not cachedSettings.weatherOn then return end
+    local h = (os.date("*t") or {hour = 0}).hour
+    if h ~= lastClockHour then
+        lastClockHour = h
+        activeMood    = Mood.choose(cachedSettings)
+    end
+end
+
+-- Expose for the setup screen's preview swatches.
+R.Mood = Mood
 
 -- ── Palette ────────────────────────────────────────────────────────────────
 local PAL = {
@@ -108,6 +139,15 @@ function R.load()
     currentBack  = cardBacks[1]
 end
 
+-- ── Mood backdrop ─────────────────────────────────────────────────────────
+-- Single entry point that every R.draw* function calls instead of laying
+-- down its own felt prologue. Takes the inner-oval radii so each screen
+-- keeps its own table footprint (auction's table is tighter than the main
+-- menu's, etc).
+local function drawMoodBackdrop(rx, ry)
+    activeMood:drawBackdrop(rx, ry)
+end
+
 -- ── Vignette overlay ──────────────────────────────────────────────────────
 -- A faint darkening at the four corners of the virtual canvas. Call from
 -- main.lua at the very end of every frame's drawing (right before V.drawEnd).
@@ -145,6 +185,9 @@ end
 function R.update(dt)
     -- Discard stale per-button hover progress every frame (cheap, ~tens of keys)
     pruneHoverState()
+
+    -- Re-pick the mood if the clock crossed an hour boundary while running.
+    refreshClockMood()
 
     if not confetti.active then return end
     if confetti.spawnFor > 0 then
@@ -814,10 +857,7 @@ end
 
 function R.drawDealing(game)
     local Anim = require("src.anim")
-    setColor(PAL.felt)
-    love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
-    setColor(PAL.felt_inner)
-    love.graphics.ellipse("fill", C.SW/2, C.SH/2, C.SW*0.40, C.SH*0.45)
+    drawMoodBackdrop(C.SW * 0.40, C.SH * 0.45)
 
     -- Player labels (no HCP yet)
     local labelPos = {
@@ -1140,11 +1180,7 @@ local function drawAuctionActionRow(game, x, y, mx, my, selectedBid, hits)
 end
 
 function R.drawAuction(game, mx, my, selectedBid)
-    -- Felt + table oval
-    setColor(PAL.felt)
-    love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
-    setColor(PAL.felt_inner)
-    love.graphics.ellipse("fill", C.SW/2, C.SH/2, C.SW*0.40, C.SH*0.45)
+    drawMoodBackdrop(C.SW * 0.40, C.SH * 0.45)
 
     local hits = {}
     local a    = game.auction
@@ -1260,11 +1296,7 @@ R.drawAnnouncement = nil
 
 -- Draw main playing table. Returns southHits, northHits, eastHits, westHits.
 function R.drawGame(game, southSel, southHov, northSel, northHov)
-    -- Background
-    setColor(PAL.felt)
-    love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
-    setColor(PAL.felt_inner)
-    love.graphics.ellipse("fill", C.SW/2, C.SH/2, 430, 310)
+    drawMoodBackdrop(430, 310)
 
     -- Determine face-up and playable sets
     local function isHumanTurn(p)
@@ -1345,11 +1377,7 @@ end
 -- ── Bidding screen ─────────────────────────────────────────────────────────
 -- Returns {suitBtns=[{suit,x,y,w,h}], trickBtns=[{tricks,x,y,w,h}], autoBtns=[]}
 function R.drawBidding(game, selSuit, selTricks, mx, my)
-    -- Table background (with hands visible)
-    setColor(PAL.felt)
-    love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
-    setColor(PAL.felt_inner)
-    love.graphics.ellipse("fill", C.SW/2, C.SH/2, 430, 310)
+    drawMoodBackdrop(430, 310)
 
     drawHorizHand(game.hands[C.SOUTH], C.SW/2, C.SH - CH - 18, true, nil, nil, nil, false)
     drawHorizHand(game.hands[C.NORTH], C.SW/2, 18, true, nil, nil, nil, false)
@@ -1532,10 +1560,7 @@ function R.drawResult(game, setupState, mx, my)
         return hits
     end
 
-    setColor(PAL.felt)
-    love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
-    setColor(PAL.felt_inner)
-    love.graphics.ellipse("fill", C.SW/2, C.SH/2, C.SW*0.42, C.SH*0.48)
+    drawMoodBackdrop(C.SW * 0.42, C.SH * 0.48)
 
     local hits = {}
     local won  = game.humanWon
@@ -1677,16 +1702,10 @@ end
 
 -- ── Main menu ──────────────────────────────────────────────────────────────
 function R.drawMainMenu(mx, my)
-    setColor(PAL.felt)
-    love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
-    -- Subtle, slow-breathing felt highlight at table centre. Adds a feeling
-    -- of life without distracting.
+    -- Breathing inner oval so the table feels alive (radii pulse ~0.9 Hz).
     local t = love.timer.getTime()
-    local breath = 0.5 + 0.5 * math.sin(t * 0.9)   -- 0..1, ~0.9 Hz
-    local rx = 560 + breath * 14
-    local ry = 380 + breath * 9
-    setColor(PAL.felt_inner)
-    love.graphics.ellipse("fill", C.SW/2, C.SH/2, rx, ry)
+    local breath = 0.5 + 0.5 * math.sin(t * 0.9)
+    drawMoodBackdrop(560 + breath * 14, 380 + breath * 9)
 
     -- Title — gentle scale + glow pulse, drop shadow underneath
     love.graphics.setFont(fonts.title)
@@ -1738,10 +1757,7 @@ end
 
 -- ── New-game setup screen (seed input + AI difficulty) ─────────────────────
 function R.drawNewGameSetup(setupState, mx, my)
-    setColor(PAL.felt)
-    love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
-    setColor(PAL.felt_inner)
-    love.graphics.ellipse("fill", C.SW/2, C.SH/2, 560, 380)
+    drawMoodBackdrop(560, 380)
 
     setColor(PAL.yellow)
     centredText(fonts.huge, "New Game", C.SW/2, 78)
@@ -1879,8 +1895,47 @@ function R.drawNewGameSetup(setupState, mx, my)
         PAL.btn_blue, PAL.btn_hover)
     hits[#hits+1] = {type="backnext", x=nx, y=ny, w=nw, h=nh}
 
+    -- ── Weather / Board theme row ──
+    -- Weather ON = mood follows wall-clock (sunrise / noon / afternoon /
+    -- evening / night). OFF = player picks one of the six boards manually
+    -- (Classic is the safe baseline matching V1's static green table).
+    local setY2 = setY + 44
+    local wCol  = setupState.weatherOn and PAL.btn_green   or PAL.btn_blue
+    local wHCol = setupState.weatherOn and PAL.btn_green_h or PAL.btn_hover
+    local _, wx, wy, ww, wh = button(
+        setupState.weatherOn and "Weather: ON (time of day)" or "Weather: OFF",
+        C.SW/2 - 380, setY2, 240, 32, mx, my, wCol, wHCol)
+    hits[#hits+1] = {type="weather", x=wx, y=wy, w=ww, h=wh}
+
+    if setupState.weatherOn then
+        -- Show which mood the clock currently maps to
+        local nowMood = R.Mood.byClock()
+        setColor(PAL.text_dim)
+        love.graphics.setFont(fonts.small)
+        centredText(fonts.small, "Now: " .. nowMood.name,
+            C.SW/2 + 40, setY2 + 16)
+    else
+        -- Manual mood cycler
+        setColor(PAL.text_dim)
+        love.graphics.setFont(fonts.tiny)
+        love.graphics.print("Board:", C.SW/2 - 130, setY2 + 10)
+
+        local currentMood = R.Mood.ALL[setupState.moodId] or R.Mood.classic
+        local _, mpx, mpy, mpw, mph = button("<",
+            C.SW/2 - 70, setY2, 28, 32, mx, my, PAL.btn_blue, PAL.btn_hover)
+        hits[#hits+1] = {type="moodprev", x=mpx, y=mpy, w=mpw, h=mph}
+
+        setColor(PAL.white)
+        centredText(fonts.med, currentMood.name, C.SW/2 + 30, setY2 + 16)
+
+        local _, mnx, mny, mnw, mnh = button(">",
+            C.SW/2 + 110, setY2, 28, 32, mx, my, PAL.btn_blue, PAL.btn_hover)
+        hits[#hits+1] = {type="moodnext", x=mnx, y=mny, w=mnw, h=mnh}
+    end
+
     -- ── Deal button + Back ──
-    local _, dx,dy,dw,dh = button("DEAL HAND", C.SW/2 - 120, 510, 240, 56, mx, my,
+    local dealY = setY2 + 56
+    local _, dx,dy,dw,dh = button("DEAL HAND", C.SW/2 - 120, dealY, 240, 56, mx, my,
         {0.65,0.10,0.10}, {0.82,0.15,0.15})
     hits[#hits+1] = {type="deal", x=dx,y=dy,w=dw,h=dh}
 
@@ -1893,10 +1948,7 @@ end
 
 -- ── Match Summary Screen ───────────────────────────────────────────────────
 function R.drawMatchSummary(game, mx, my)
-    setColor(PAL.felt)
-    love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
-    setColor(PAL.felt_inner)
-    love.graphics.ellipse("fill", C.SW/2, C.SH/2, C.SW*0.42, C.SH*0.48)
+    drawMoodBackdrop(C.SW * 0.42, C.SH * 0.48)
 
     local nsScore = game.sessionScore[1]
     local ewScore = game.sessionScore[2]
