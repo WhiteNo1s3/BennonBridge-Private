@@ -68,6 +68,7 @@ local function dealFromSetup()
     Anim.enabled = setupState.introAnim and true or false
     SND.setEnabled(setupState.soundOn and true or false)
     R.setBackTheme(setupState.backTheme)
+    R.setMood(setupState)
     -- Parse the seed buffer; empty = random
     local seed = tonumber(setupState.seedBuf) or love.math.random(1, 99999)
     if seed < 1 then seed = 1 end
@@ -110,12 +111,17 @@ function love.load()
         introAnim = true,    -- deal animation at start of hand
         soundOn   = true,    -- master sound toggle
         backTheme = 1,       -- 1..9 (rotates through card-back PNGs)
+        -- Table mood (V2): when weatherOn is true the board re-themes itself
+        -- by wall-clock time; otherwise it sticks to the player-chosen moodId.
+        weatherOn = true,
+        moodId    = "classic",
         difficulty = {
             [C.NORTH] = C.MEDIUM,
             [C.EAST]  = C.MEDIUM,
             [C.WEST]  = C.MEDIUM,
         },
     }
+    R.setMood(setupState)
     game.state = C.STATE_MENU
 end
 
@@ -345,6 +351,25 @@ function onSetupClick(x, y)
             setupState.backTheme = (setupState.backTheme % R.BACK_COUNT) + 1
             R.setBackTheme(setupState.backTheme)
         end
+
+    elseif h.type == "weather" then
+        setupState.weatherOn = not setupState.weatherOn
+        R.setMood(setupState)
+
+    elseif h.type == "moodprev" or h.type == "moodnext" then
+        -- Cycle through R.Mood.ORDER (only meaningful when weather is off).
+        local order = R.Mood.ORDER
+        local idx = 1
+        for i, id in ipairs(order) do
+            if id == setupState.moodId then idx = i break end
+        end
+        if h.type == "moodprev" then
+            idx = ((idx - 2) % #order) + 1
+        else
+            idx = (idx % #order) + 1
+        end
+        setupState.moodId = order[idx]
+        R.setMood(setupState)
 
     elseif h.type == "diff" then
         setupState.difficulty[h.player] = h.diff
