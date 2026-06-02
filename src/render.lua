@@ -1480,6 +1480,161 @@ function R.drawBidding(game, selSuit, selTricks, mx, my)
     return suitHits, trickHits, autoBtns
 end
 
+-- ── Modern result banner ──────────────────────────────────────────────────
+-- A polished card with a soft drop shadow, subtle vertical gradient inside,
+-- an accent ribbon along the top edge, and a 2-tone border. Replaces the
+-- bare rectangle("fill") + rectangle("line") prologue every winner panel
+-- used to do. Cards / text rendered by the caller AFTER this returns sit on
+-- top, as expected.
+local function drawModernBanner(bx, by, bw, bh, accent, won)
+    -- Drop shadow underneath
+    for i = 1, 6 do
+        love.graphics.setColor(0, 0, 0, 0.05 * (7 - i))
+        love.graphics.rectangle("fill",
+            bx - i * 0.5, by + i * 1.6, bw + i, bh + i * 0.6, 18)
+    end
+    -- Main body — vertical gradient via stacked semi-transparent strips
+    local segs = 24
+    for i = 0, segs - 1 do
+        local t = i / (segs - 1)
+        -- Top is slightly lighter than the bottom, for depth
+        local v = 0.04 + (1 - t) * 0.05
+        love.graphics.setColor(v + 0.02, v + 0.03, v + 0.05, 0.92)
+        love.graphics.rectangle("fill",
+            bx, by + (bh / segs) * i, bw, bh / segs + 1)
+    end
+    -- Re-cut the rounded corners by stamping a clear rounded mask: easier
+    -- to just redraw the body once over the gradient with alpha=0 on the
+    -- corners via stencil — but a much cheaper trick is to overdraw a thin
+    -- frame matching the felt at each rounded corner. We accept the slight
+    -- square corners on the gradient strips and lay the border on top:
+    -- Inner glow ring (very subtle)
+    love.graphics.setColor(accent[1], accent[2], accent[3], 0.10)
+    love.graphics.setLineWidth(6)
+    love.graphics.rectangle("line", bx + 3, by + 3, bw - 6, bh - 6, 16)
+    -- Crisp outer border in accent colour
+    love.graphics.setLineWidth(3)
+    love.graphics.setColor(accent[1], accent[2], accent[3], 1.0)
+    love.graphics.rectangle("line", bx, by, bw, bh, 18)
+    -- Top accent ribbon — small bar across the top edge
+    love.graphics.setColor(accent[1], accent[2], accent[3], 0.85)
+    love.graphics.rectangle("fill", bx + 24, by - 3, bw - 48, 8, 4)
+    -- Two small chevron tabs flanking the ribbon for a trophy-cup feel
+    love.graphics.polygon("fill",
+        bx + 12, by + 2,  bx + 28, by - 4,  bx + 28, by + 12)
+    love.graphics.polygon("fill",
+        bx + bw - 12, by + 2,  bx + bw - 28, by - 4,  bx + bw - 28, by + 12)
+    love.graphics.setLineWidth(1)
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
+-- ── Vector "W" winner badge ───────────────────────────────────────────────
+-- A purely-vector ornament for the winner banner. A double-V "W" glyph in
+-- a circular medallion, framed by two laurel branches and a crown of three
+-- points. Stays crisp at any zoom and any DPI — ideal for 4K / tablet.
+-- `won = false` draws a muted gray version (loss screen).
+local function drawWinnerBadge(cx, cy, size, won)
+    local accent = won and {1.00, 0.82, 0.15} or {0.60, 0.62, 0.66}
+    local dark   = won and {0.55, 0.40, 0.05} or {0.30, 0.32, 0.36}
+    local glow   = won and {1.00, 0.92, 0.40} or {0.45, 0.48, 0.55}
+
+    -- Soft halo glow
+    if won then
+        for i = 5, 1, -1 do
+            love.graphics.setColor(glow[1], glow[2], glow[3], 0.06 * i)
+            love.graphics.circle("fill", cx, cy, size * (0.95 + i * 0.18))
+        end
+    end
+
+    -- Outer medallion ring
+    love.graphics.setColor(dark)
+    love.graphics.circle("fill", cx, cy, size * 0.95)
+    love.graphics.setColor(accent)
+    love.graphics.setLineWidth(3)
+    love.graphics.circle("line", cx, cy, size * 0.95)
+    -- Inner ring
+    love.graphics.setLineWidth(1)
+    love.graphics.circle("line", cx, cy, size * 0.78)
+
+    -- Inner medallion fill (slightly darker)
+    love.graphics.setColor(dark[1] * 0.7, dark[2] * 0.7, dark[3] * 0.7, 1)
+    love.graphics.circle("fill", cx, cy, size * 0.78)
+
+    -- The W glyph — two thick V chevrons mirrored. Drawn as 4 trapezoids so
+    -- it stays sharp at any scale (no font rasterisation).
+    love.graphics.setColor(accent)
+    local s   = size * 0.55          -- half-width of the W
+    local h   = size * 0.55          -- half-height of the W
+    local th  = size * 0.16          -- stroke thickness
+    -- Left V: outer-top-left → inner-bottom → outer-top-mid
+    love.graphics.polygon("fill",
+        cx - s,         cy - h,
+        cx - s + th,    cy - h,
+        cx - s * 0.18,  cy + h,
+        cx - s * 0.18 - th * 0.8, cy + h)
+    love.graphics.polygon("fill",
+        cx - s * 0.18,  cy + h,
+        cx - s * 0.18 + th * 0.8, cy + h,
+        cx + th * 0.5,  cy - h * 0.15,
+        cx,             cy - h * 0.15)
+    -- Right V (mirror)
+    love.graphics.polygon("fill",
+        cx + s,         cy - h,
+        cx + s - th,    cy - h,
+        cx + s * 0.18,  cy + h,
+        cx + s * 0.18 + th * 0.8, cy + h)
+    love.graphics.polygon("fill",
+        cx + s * 0.18,  cy + h,
+        cx + s * 0.18 - th * 0.8, cy + h,
+        cx - th * 0.5,  cy - h * 0.15,
+        cx,             cy - h * 0.15)
+
+    -- Crown above: three small triangles sitting on a thin bar
+    love.graphics.setColor(accent)
+    love.graphics.rectangle("fill",
+        cx - size * 0.40, cy - size * 1.08, size * 0.80, size * 0.10, 2)
+    for i = -1, 1 do
+        local tx = cx + i * size * 0.32
+        love.graphics.polygon("fill",
+            tx - size * 0.13, cy - size * 1.08,
+            tx,                cy - size * 1.45,
+            tx + size * 0.13, cy - size * 1.08)
+        -- A small gem ball atop each crown spike
+        love.graphics.circle("fill", tx, cy - size * 1.48, size * 0.07)
+    end
+
+    -- Laurel branches flanking the medallion (six leaves each side)
+    love.graphics.setColor(accent[1] * 0.85, accent[2] * 0.85, accent[3] * 0.85, 0.95)
+    love.graphics.setLineWidth(2)
+    local function laurel(dir)
+        local baseA = dir > 0 and math.pi * 0.05 or math.pi * 0.95
+        -- Spine
+        local spineEndX = cx + math.cos(baseA + math.pi * 0.5) * size * 1.20
+                          + dir * size * 0.10
+        local spineEndY = cy + math.sin(baseA + math.pi * 0.5) * size * 1.20
+        love.graphics.line(
+            cx + dir * size * 0.95, cy + size * 0.05,
+            spineEndX,              spineEndY)
+        -- 5 leaves
+        for i = 1, 5 do
+            local t  = i / 6
+            local lx = cx + dir * size * (0.95 + t * 0.32)
+            local ly = cy + size * 0.05 - t * size * 1.05
+            local lr = size * 0.18 * (1 - t * 0.45)
+            love.graphics.push()
+            love.graphics.translate(lx, ly)
+            love.graphics.rotate(dir * (-0.45 - t * 0.4))
+            -- Leaf shape: filled ellipse
+            love.graphics.ellipse("fill", 0, 0, lr * 1.6, lr * 0.6)
+            love.graphics.pop()
+        end
+    end
+    laurel( 1)
+    laurel(-1)
+    love.graphics.setLineWidth(1)
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
 -- ── Result screen ──────────────────────────────────────────────────────────
 function R.drawResult(game, setupState, mx, my)
     -- Fire confetti once on entry if the human won
@@ -1500,58 +1655,60 @@ function R.drawResult(game, setupState, mx, my)
         setColor(0, 0, 0, 0.65)
         love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
         
-        local bw, bh = 700, 420
+        local bw, bh = 720, 440
         local bx, by = C.SW/2 - bw/2, C.SH/2 - bh/2
-        
-        setColor(0.06, 0.07, 0.11, 0.94)
-        love.graphics.rectangle("fill", bx, by, bw, bh, 18)
-        
+        local maxTxt = bw - 60        -- safe inner width for centred text
+
         local won = game.humanWon
-        local borderColor = won and PAL.yellow or {0.85, 0.25, 0.25}
-        setColor(borderColor)
-        love.graphics.setLineWidth(4)
-        love.graphics.rectangle("line", bx, by, bw, bh, 18)
-        love.graphics.setLineWidth(1)
-        
+        local accent = won and PAL.yellow or {0.85, 0.25, 0.25}
+        drawModernBanner(bx, by, bw, bh, accent, won)
+
+        -- Title (auto-shrinks to fit)
         setColor(PAL.yellow)
-        centredText(fonts.title, "BOARD " .. tostring(game.matchBoard) .. " OF 7 COMPLETE", C.SW/2, by + 55)
-        
+        centredText(fonts.title,
+            "BOARD " .. tostring(game.matchBoard) .. " OF 7 COMPLETE",
+            C.SW/2, by + 55, maxTxt)
+
         setColor(won and {0.35, 0.90, 0.45} or {0.95, 0.35, 0.35})
         local resultStr = won and "NORTH-SOUTH WINS THE BOARD!" or "EAST-WEST WINS THE BOARD!"
-        centredText(fonts.large, resultStr, C.SW/2, by + 105)
-        
+        centredText(fonts.large, resultStr, C.SW/2, by + 110, maxTxt)
+
         local res = game.handResult
         setColor(PAL.white)
-        centredText(fonts.med, res.desc, C.SW/2, by + 145)
-        
+        centredText(fonts.med, res.desc, C.SW/2, by + 150, maxTxt)
+
         setColor(PAL.text_dim)
         love.graphics.setFont(fonts.med)
-        love.graphics.print("TEAM", C.SW/2 - 240, by + 195)
-        centredText(fonts.med, "BOARDS WON", C.SW/2, by + 195)
-        love.graphics.print("TOTAL POINTS", C.SW/2 + 130, by + 195)
-        
+        love.graphics.print("TEAM", C.SW/2 - 240, by + 200)
+        centredText(fonts.med, "BOARDS WON", C.SW/2, by + 200, 160)
+        love.graphics.print("TOTAL POINTS", C.SW/2 + 130, by + 200)
+
         setColor(0.3, 0.4, 0.5, 0.4)
-        love.graphics.line(C.SW/2 - 250, by + 225, C.SW/2 + 250, by + 225)
-        
+        love.graphics.line(C.SW/2 - 250, by + 230, C.SW/2 + 250, by + 230)
+
         setColor(PAL.white)
         love.graphics.setFont(fonts.large)
-        love.graphics.print("North-South (NS)", C.SW/2 - 240, by + 240)
-        centredText(fonts.large, tostring(game.matchWins and game.matchWins[1] or 0), C.SW/2, by + 240)
-        love.graphics.print(tostring(game.sessionScore[1]) .. " pts", C.SW/2 + 130, by + 240)
-        
-        love.graphics.print("East-West (EW)", C.SW/2 - 240, by + 285)
-        centredText(fonts.large, tostring(game.matchWins and game.matchWins[2] or 0), C.SW/2, by + 285)
-        love.graphics.print(tostring(game.sessionScore[2]) .. " pts", C.SW/2 + 130, by + 285)
-        
+        love.graphics.print("North-South (NS)", C.SW/2 - 240, by + 245)
+        centredText(fonts.large, tostring(game.matchWins and game.matchWins[1] or 0), C.SW/2, by + 245, 120)
+        love.graphics.print(tostring(game.sessionScore[1]) .. " pts", C.SW/2 + 130, by + 245)
+
+        love.graphics.print("East-West (EW)", C.SW/2 - 240, by + 290)
+        centredText(fonts.large, tostring(game.matchWins and game.matchWins[2] or 0), C.SW/2, by + 290, 120)
+        love.graphics.print(tostring(game.sessionScore[2]) .. " pts", C.SW/2 + 130, by + 290)
+
         setColor(0.3, 0.4, 0.5, 0.4)
-        love.graphics.line(C.SW/2 - 250, by + 330, C.SW/2 + 330, by + 330)
-        
+        love.graphics.line(C.SW/2 - 250, by + 335, C.SW/2 + 330, by + 335)
+
         setColor(PAL.text_dim)
-        centredText(fonts.small, "Match Start Seed: #" .. tostring(game.matchStartSeed or game.seed) .. "     Board Seed: #" .. tostring(game.seed), C.SW/2, by + 352)
-        
+        centredText(fonts.small,
+            "Match Start Seed: #" .. tostring(game.matchStartSeed or game.seed)
+            .. "     Board Seed: #" .. tostring(game.seed),
+            C.SW/2, by + 360, maxTxt)
+
         setColor(PAL.yellow)
-        local promptText = game.autoSouth and "Auto-advancing in a few seconds..." or "Click anywhere to randomize and deal next board"
-        centredText(fonts.med, promptText, C.SW/2, by + 382)
+        local promptText = game.autoSouth and "Auto-advancing in a few seconds..."
+            or "Click anywhere to randomize and deal next board"
+        centredText(fonts.med, promptText, C.SW/2, by + 395, maxTxt)
         
         local hits = {}
         hits[1] = {type = "next_board_anywhere", x = 0, y = 0, w = C.SW, h = C.SH}
@@ -1616,41 +1773,46 @@ function R.drawResult(game, setupState, mx, my)
     -- Confetti rendered behind the central banner on a win
     if won then drawConfetti() end
 
-    -- Central banner (tall enough to comfortably contain the buttons below
-    -- the score line, with no overlap)
-    local bw, bh = 660, 320
+    -- Central banner — modern look with shadow, gradient, accent ribbon and
+    -- a vector W badge above the headline. Sized to comfortably hold all of
+    -- the body text, the seed-input row and the action buttons.
+    local bw, bh = 680, 340
     local bx, by = C.SW/2 - bw/2, C.SH/2 - bh/2
-    setColor(0, 0, 0, 0.78)
-    love.graphics.rectangle("fill", bx, by, bw, bh, 14)
-    setColor(won and PAL.yellow or {0.85, 0.25, 0.25})
-    love.graphics.setLineWidth(3)
-    love.graphics.rectangle("line", bx, by, bw, bh, 14)
-    love.graphics.setLineWidth(1)
+    local maxTxt = bw - 60
+    local accent = won and PAL.yellow or {0.85, 0.25, 0.25}
+    drawModernBanner(bx, by, bw, bh, accent, won)
 
+    -- Vector winner / loss badge, sits above the headline. Doesn't shift the
+    -- existing layout below it (the badge is anchored above by+20).
+    drawWinnerBadge(C.SW/2, by + 6, 22, won)
+
+    -- Headline (auto-shrinks to fit; YOU WON / You Lost both safely fit).
     if won then
         setColor(PAL.yellow)
-        centredText(fonts.title, "YOU WON!", C.SW/2, by + 50)
+        centredText(fonts.title, "YOU WON!", C.SW/2, by + 60, maxTxt)
     else
         setColor({0.95, 0.40, 0.40})
-        centredText(fonts.title, "You Lost", C.SW/2, by + 50)
+        centredText(fonts.title, "You Lost", C.SW/2, by + 60, maxTxt)
     end
 
     setColor(PAL.white)
-    centredText(fonts.med, res.desc, C.SW/2, by + 130)
+    centredText(fonts.med, res.desc, C.SW/2, by + 140, maxTxt)
     setColor(PAL.text_dim)
     centredText(fonts.small,
         string.format("Declarer took %d / %d tricks    Hand seed #%d",
                       game.tricksDeclarer, game.contractTricks, game.seed),
-        C.SW/2, by + 162)
+        C.SW/2, by + 172, maxTxt)
     setColor(PAL.white)
-    local sessionLabel = game.matchMode == "7board" and string.format("Match Score (Board %d/7)", game.matchBoard or 1) or "Session Score"
+    local sessionLabel = game.matchMode == "7board"
+        and string.format("Match Score (Board %d/7)", game.matchBoard or 1)
+        or "Session Score"
     centredText(fonts.med,
         string.format("%s   N-S: %d pts     E-W: %d pts",
                       sessionLabel, game.sessionScore[1], game.sessionScore[2]),
-        C.SW/2, by + 194)
+        C.SW/2, by + 204, maxTxt)
 
     -- ── Seed input row (for Next Hand) ──
-    local rowY = by + 224
+    local rowY = by + 234        -- shifted +10 to match the +10 body offset
     setColor(PAL.white)
     love.graphics.setFont(fonts.med)
     love.graphics.print("Next Seed:", C.SW/2 - 170, rowY + 6)
@@ -2096,44 +2258,48 @@ function R.drawMatchSummary(game, mx, my)
         
         return hits
     else
-        local bw, bh = 700, 420
+        local bw, bh = 720, 440
         local bx, by = C.SW/2 - bw/2, C.SH/2 - bh/2
-        
-        setColor(0, 0, 0, 0.82)
-        love.graphics.rectangle("fill", bx, by, bw, bh, 20)
-        
-        setColor(borderColor)
-        love.graphics.setLineWidth(4)
-        love.graphics.rectangle("line", bx, by, bw, bh, 20)
-        love.graphics.setLineWidth(1)
-        
+        local maxTxt = bw - 60        -- safe inner width for centred text
+
+        -- Modern banner + W badge (golden for NS win, neutral otherwise)
+        drawModernBanner(bx, by, bw, bh, borderColor, nsWon)
+        drawWinnerBadge(C.SW/2, by + 4, 22, nsWon and not isTie)
+
         setColor(PAL.yellow)
-        centredText(fonts.title, "MATCH COMPLETE", C.SW/2, by + 45)
-        
+        centredText(fonts.title, "MATCH COMPLETE", C.SW/2, by + 55, maxTxt)
+
         setColor(PAL.text_dim)
-        centredText(fonts.med, "7-Board Match Results", C.SW/2, by + 90)
-        
+        centredText(fonts.med, "7-Board Match Results", C.SW/2, by + 100, maxTxt)
+
         local nsWins = game.matchWins and game.matchWins[1] or 0
         local ewWins = game.matchWins and game.matchWins[2] or 0
-        
+
+        -- Two side-by-side score chips; each clipped to its half-width.
         setColor(PAL.white)
-        centredText(fonts.large, string.format("N-S: %d pts (%d Wins)", nsScore, nsWins), C.SW/2 - 140, by + 145)
-        centredText(fonts.large, string.format("E-W: %d pts (%d Wins)", ewScore, ewWins), C.SW/2 + 140, by + 145)
-        
+        centredText(fonts.large,
+            string.format("N-S: %d pts (%d Wins)", nsScore, nsWins),
+            C.SW/2 - 140, by + 155, 260)
+        centredText(fonts.large,
+            string.format("E-W: %d pts (%d Wins)", ewScore, ewWins),
+            C.SW/2 + 140, by + 155, 260)
+
         setColor(borderColor)
         local resultText = "IT'S A TIE!"
         if not isTie then
             resultText = (nsWon and "NORTH-SOUTH" or "EAST-WEST") .. " WINS THE MATCH!"
         end
-        centredText(fonts.title, resultText, C.SW/2, by + 205, bw - 60)
-        
+        centredText(fonts.title, resultText, C.SW/2, by + 215, maxTxt)
+
         setColor(PAL.text_dim)
-        centredText(fonts.small, "Match Start Seed: #" .. tostring(game.matchStartSeed or game.seed), C.SW/2, by + 265)
+        centredText(fonts.small,
+            "Match Start Seed: #" .. tostring(game.matchStartSeed or game.seed),
+            C.SW/2, by + 275, maxTxt)
         
         local hits = {}
         
         -- Reveal Table button (wide and sleek)
-        local _, tx, ty, tw, th = button("Reveal Table", C.SW/2 - 110, by + 295, 220, 38, mx, my, {0.18, 0.35, 0.48}, {0.24, 0.44, 0.60})
+        local _, tx, ty, tw, th = button("Reveal Table", C.SW/2 - 110, by + 305, 220, 38, mx, my, {0.18, 0.35, 0.48}, {0.24, 0.44, 0.60})
         hits[#hits+1] = {type="reveal_table", x=tx, y=ty, w=tw, h=th}
         
         local btnY = by + bh - 70
