@@ -1,8 +1,10 @@
 function love.conf(t)
     t.title   = "Bridge"
-    -- Target LÖVE 12. The 12.x line is required for the Android build path
-    -- (love-android Gradle project) and for the SDF-based default font.
-    t.version = "12.0"
+    -- Dev runtime is LÖVE 11.5 (current public release). When packaging the
+    -- Android build, flip this to whatever love-android ships with (12.x).
+    -- Keeping this in sync with the installed runtime silences the
+    -- "Compatibility Warning" dialog at launch.
+    t.version = "11.5"
     -- LÖVE 12 introduces a new renderer backend selector. We let LÖVE pick
     -- automatically (OpenGL on desktop, Vulkan/Metal where available, GLES on
     -- Android) by not constraining `t.graphics.renderers`.
