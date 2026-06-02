@@ -37,3 +37,6 @@ minibridgeRules.pdf
 
 # ── Misc loose AI-helper scratch files ────────────────────────────────────
 gemini-code-*.py
+
+# ── Local archive folder for stuff we don't use at runtime ────────────────
+trash/
