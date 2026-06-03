@@ -532,6 +532,13 @@ end
 
 local OV = C.CARD_OVERLAP
 
+-- Derived layout anchors (so a card-size change rescales the table). A side
+-- (East/West) hand's centre sits SIDE_X in from the screen edge — far enough
+-- that the wider rotated cards (half-width = CH/2) never clip. Its seat badge
+-- sits SIDE_BADGE in from the edge, just clear of that hand's inboard edge.
+local SIDE_X     = CH/2 + 8     -- West baseCX (East = SW - SIDE_X)
+local SIDE_BADGE = CH + 30      -- West E/W badge x (East = SW - SIDE_BADGE)
+
 -- Horizontal fan, face-up (South or North)
 local function drawHorizHand(hand, baseX, baseY, faceUp, playableSet, selectedIdx, hoverIdx, flip)
     local n = #hand
@@ -614,7 +621,7 @@ end
 
 -- ── Trick display ──────────────────────────────────────────────────────────
 
-local TRICK_OFFSET = 58
+local TRICK_OFFSET = 76
 
 local trickPos = {
     [C.NORTH] = function() return C.SW/2 - CW/2, C.SH/2 - TRICK_OFFSET - CH end,
@@ -829,13 +836,14 @@ end
 
 local function drawPlayerLabels(game)
     -- {cx, cy, layout}  layout "h" = horizontal plate (N/S), "v" = compact (E/W)
+    -- All derived from card height so a card-size change keeps the badges clear
+    -- of the hands. N/S sit just outside their hand; E/W sit inboard of the side
+    -- columns in clear felt (SIDE_BADGE), never on top of the cards.
     local pos = {
-        [C.NORTH] = {C.SW/2,      138,          "h"},
-        [C.SOUTH] = {C.SW/2,      C.SH - 138,   "h"},
-        -- Inboard of the side hands (cards span x 6-104 / 1176-1274), in clear
-        -- felt at vertical centre, so the token never sits on top of the cards.
-        [C.EAST]  = {C.SW - 138,  C.SH/2,       "v"},
-        [C.WEST]  = {138,         C.SH/2,       "v"},
+        [C.NORTH] = {C.SW/2,             18 + CH + 23,        "h"},
+        [C.SOUTH] = {C.SW/2,             C.SH - CH - 18 - 23, "h"},
+        [C.EAST]  = {C.SW - SIDE_BADGE,  C.SH/2,              "v"},
+        [C.WEST]  = {SIDE_BADGE,         C.SH/2,              "v"},
     }
 
     for p, pt in pairs(pos) do
@@ -1011,11 +1019,11 @@ function R.drawDealing(game)
     local Anim = require("src.anim")
     drawMoodBackdrop(C.SW * 0.40, C.SH * 0.45)
 
-    -- Player labels (no HCP yet)
+    -- Player labels (no HCP yet). N/S clear the taller hands.
     local labelPos = {
-        [C.NORTH] = {C.SW/2,     136},
+        [C.NORTH] = {C.SW/2,     18 + CH + 6},
         [C.EAST]  = {C.SW - 38,  C.SH/2},
-        [C.SOUTH] = {C.SW/2,     C.SH - 138},
+        [C.SOUTH] = {C.SW/2,     C.SH - CH - 18 - 22},
         [C.WEST]  = {38,         C.SH/2},
     }
     love.graphics.setFont(fonts.small)
@@ -1340,15 +1348,15 @@ function R.drawAuction(game, mx, my, selectedBid)
     -- Hand display: South always face-up; others face-down during the auction
     drawHorizHand(game.hands[C.NORTH], C.SW/2, 18,             false, nil, nil, nil, false)
     drawHorizHand(game.hands[C.SOUTH], C.SW/2, C.SH-CH-18,     true,  nil, nil, nil, false)
-    drawVertHand (game.hands[C.EAST],  C.SW-55, C.SH/2,  math.pi/2, false, nil)
-    drawVertHand (game.hands[C.WEST],  55,      C.SH/2, -math.pi/2, false, nil)
+    drawVertHand (game.hands[C.EAST],  C.SW-SIDE_X, C.SH/2,  math.pi/2, false, nil)
+    drawVertHand (game.hands[C.WEST],  SIDE_X,      C.SH/2, -math.pi/2, false, nil)
 
     -- Player labels with HCP, current bidder highlighted
     local labelPos = {
-        [C.NORTH] = {C.SW/2,    136},
-        [C.EAST]  = {C.SW - 38, C.SH/2},
-        [C.SOUTH] = {C.SW/2,    C.SH - 138},
-        [C.WEST]  = {38,        C.SH/2},
+        [C.NORTH] = {C.SW/2,          18 + CH + 6},      -- just below the taller hand
+        [C.EAST]  = {C.SW - 38,       C.SH/2},
+        [C.SOUTH] = {C.SW/2,          C.SH - CH - 18 - 22}, -- just above the taller hand
+        [C.WEST]  = {38,              C.SH/2},
     }
     love.graphics.setFont(fonts.small)
     for p, pt in pairs(labelPos) do
@@ -1487,9 +1495,9 @@ function R.drawGame(game, southSel, southHov, northSel, northHov)
                     nFace, nPlayable, northSel, northHov, false)
     local sHits = drawHorizHand(game.hands[C.SOUTH], C.SW/2, C.SH - CH - 18,
                     sFace, sPlayable, southSel, southHov, false)
-    local eHits = drawVertHand(game.hands[C.EAST], C.SW - 55, C.SH/2,
+    local eHits = drawVertHand(game.hands[C.EAST], C.SW - SIDE_X, C.SH/2,
                     math.pi/2, eFace, ePlayable)
-    local wHits = drawVertHand(game.hands[C.WEST], 55, C.SH/2,
+    local wHits = drawVertHand(game.hands[C.WEST], SIDE_X, C.SH/2,
                     -math.pi/2, wFace, wPlayable)
 
     -- Trick in centre
@@ -1535,8 +1543,9 @@ function R.drawBidding(game, selSuit, selTricks, mx, my)
     drawHorizHand(game.hands[C.NORTH], C.SW/2, 18, true, nil, nil, nil, false)
 
     -- North is the partner whose hand is shown face-up: mark it with the same
-    -- product-grade chip used on the table, not a bare debug string.
-    drawRoleChip(C.SW/2, 128, "DUMMY", {0.62, 0.42, 0.10})
+    -- product-grade chip used on the table, not a bare debug string. Sits just
+    -- below the (now taller) north hand.
+    drawRoleChip(C.SW/2, 18 + CH + 14, "DUMMY", {0.62, 0.42, 0.10})
 
     drawScorePanel(game)
 
@@ -1877,31 +1886,34 @@ function R.drawResult(game, setupState, mx, my)
     -- On loss, reveal all four ORIGINAL hands (as they were dealt). On win,
     -- skip that and just show the celebration.
     if not won then
+        -- Keep the reveal mini-fans at their original pixel size regardless of
+        -- the play-card bump, so they stay clear of the central banner/labels.
+        local RS = 0.62 * 70 / CW
         local function fanH(hand, baseX, baseY)
             -- compact horizontal fan, face-up, no interactivity
             local n   = #hand
-            local cw  = CW * 0.62
+            local cw  = CW * RS
             local gap = cw * 0.42
             local total = (n - 1) * gap + cw
             local x0  = baseX - total/2
             for i, c in ipairs(hand) do
                 love.graphics.push()
                 love.graphics.translate(x0 + (i-1)*gap, baseY)
-                love.graphics.scale(0.62, 0.62)
+                love.graphics.scale(RS, RS)
                 drawCardFace(0, 0, c, nil, false)
                 love.graphics.pop()
             end
         end
         local function fanV(hand, baseX, baseY)
             local n   = #hand
-            local ch  = CH * 0.62
+            local ch  = CH * RS
             local gap = ch * 0.38
             local total = (n - 1) * gap + ch
             local y0  = baseY - total/2
             for i, c in ipairs(hand) do
                 love.graphics.push()
                 love.graphics.translate(baseX, y0 + (i-1)*gap)
-                love.graphics.scale(0.62, 0.62)
+                love.graphics.scale(RS, RS)
                 drawCardFace(0, 0, c, nil, false)
                 love.graphics.pop()
             end

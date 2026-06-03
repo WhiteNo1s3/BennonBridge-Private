@@ -90,9 +90,13 @@ C.AUCTION_AI_DELAY = 0.9
 C.SW = 1280
 C.SH = 800
 
-C.CARD_W       = 70
-C.CARD_H       = 98
-C.CARD_RADIUS  = 6
-C.CARD_OVERLAP = 22   -- horizontal/vertical overlap in a fan
+-- Card size drives the whole table layout. Seat badges, side-hand insets and
+-- the trick spread are derived from CARD_H in render.lua, so bumping these four
+-- numbers rescales everything coherently. Enlarged for phone readability
+-- (was 70x98); keeps the original ~70:98 aspect.
+C.CARD_W       = 96
+C.CARD_H       = 134
+C.CARD_RADIUS  = 8
+C.CARD_OVERLAP = 30   -- horizontal/vertical overlap in a fan
 
 return C
