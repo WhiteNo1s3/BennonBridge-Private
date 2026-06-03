@@ -38,17 +38,10 @@ end
 
 function V.drawEnd()
     love.graphics.pop()
-    -- Letterbox bars (kept subtle so the felt is the focus)
-    local winW, winH = love.graphics.getDimensions()
-    love.graphics.setColor(0, 0, 0, 1)
-    if V.offsetX > 0 then
-        love.graphics.rectangle("fill", 0, 0, V.offsetX, winH)
-        love.graphics.rectangle("fill", winW - V.offsetX, 0, V.offsetX, winH)
-    end
-    if V.offsetY > 0 then
-        love.graphics.rectangle("fill", 0, 0, winW, V.offsetY)
-        love.graphics.rectangle("fill", 0, winH - V.offsetY, winW, V.offsetY)
-    end
+    -- No letterbox bars are painted here: the window is cleared every frame to
+    -- the active mood's felt colour (see render.applyMoodBackground), so the
+    -- margins on wide/tall displays fill with felt and the table bleeds to the
+    -- screen edges. The centred play area is drawn on top inside drawBegin.
 end
 
 -- Convert a window coordinate (from love.mouse*) into virtual space.
