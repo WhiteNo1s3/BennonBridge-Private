@@ -16,10 +16,20 @@ local activeMood    = Mood.classic
 local cachedSettings = nil
 local lastClockHour  = nil
 
+-- Push the active mood's felt colour to the window background. LÖVE clears to
+-- this every frame, so on wide/tall displays the letterbox margins fill with
+-- the same felt instead of black bars — the table bleeds edge-to-edge and the
+-- centred play area sits on top. Resolution-independent: works at any size.
+local function applyMoodBackground()
+    local f = activeMood.felt or {0.10, 0.34, 0.12}
+    love.graphics.setBackgroundColor(f[1], f[2], f[3], 1)
+end
+
 function R.setMood(settings)
     cachedSettings = settings
     activeMood     = Mood.choose(settings)
     lastClockHour  = (os.date("*t") or {hour = 0}).hour
+    applyMoodBackground()
 end
 
 -- Called from R.update so a long-running session re-themes itself as the
@@ -30,6 +40,7 @@ local function refreshClockMood()
     if h ~= lastClockHour then
         lastClockHour = h
         activeMood    = Mood.choose(cachedSettings)
+        applyMoodBackground()
     end
 end
 
