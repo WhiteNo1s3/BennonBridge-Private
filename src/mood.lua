@@ -61,6 +61,22 @@ function Mood:drawBackdrop(rx, ry)
     love.graphics.setColor(self.felt_inner)
     love.graphics.ellipse("fill", cx, cy, rx, ry)
 
+    -- Modern table sheen: a soft lighter bloom toward the upper-centre of the
+    -- oval (as if a lamp hangs over the table) plus a darker vignette at the
+    -- oval's rim. Cheap concentric ellipses, additive-feeling via low alpha.
+    local fi = self.felt_inner
+    for i = 6, 1, -1 do
+        local t = i / 6
+        love.graphics.setColor(fi[1] + 0.10, fi[2] + 0.12, fi[3] + 0.08, 0.05)
+        love.graphics.ellipse("fill", cx, cy - ry * 0.10,
+            rx * 0.74 * t, ry * 0.70 * t)
+    end
+    -- Rim shadow: a faint dark ring hugging the oval edge for depth.
+    love.graphics.setLineWidth(10)
+    love.graphics.setColor(0, 0, 0, 0.06)
+    love.graphics.ellipse("line", cx, cy, rx - 3, ry - 3)
+    love.graphics.setLineWidth(1)
+
     if self.ambient[4] and self.ambient[4] > 0 then
         love.graphics.setColor(self.ambient)
         love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
@@ -145,6 +161,27 @@ local function sunburst(cx, cy, rInner, rOuter, rays, col, alpha, startA, sweep)
         local y4  = cy + math.sin(a - aw) * rOuter
         love.graphics.polygon("fill", x1, y1, x2, y2, x3, y3, x4, y4)
     end
+end
+
+-- A glowing sun disc: layered halo rings fading outward, a warm core, and a
+-- bright hot-spot near the top so it reads as a light source rather than a
+-- flat circle. Pairs with sunburst() rays for the sunrise mood.
+local function sunDisc(cx, cy, r, coreCol, glowCol, alpha)
+    alpha = alpha or 1
+    -- Outer halo — many soft rings of decreasing alpha for a smooth bloom.
+    for i = 12, 1, -1 do
+        love.graphics.setColor(glowCol[1], glowCol[2], glowCol[3], 0.030 * i * alpha)
+        love.graphics.circle("fill", cx, cy, r * (1 + i * 0.42))
+    end
+    -- Core disc.
+    love.graphics.setColor(coreCol[1], coreCol[2], coreCol[3], 0.95 * alpha)
+    love.graphics.circle("fill", cx, cy, r)
+    -- Inner brighter ring + hot-spot to fake a top-lit gradient.
+    love.graphics.setColor(1.0, 0.96, 0.80, 0.55 * alpha)
+    love.graphics.circle("fill", cx, cy - r * 0.12, r * 0.72)
+    love.graphics.setColor(1.0, 1.0, 0.92, 0.65 * alpha)
+    love.graphics.circle("fill", cx - r * 0.10, cy - r * 0.22, r * 0.40)
+    love.graphics.setColor(1, 1, 1, 1)
 end
 
 -- A simple silhouette bird ("seagull" U-shape) drawn with two arcs. Used as
@@ -247,27 +284,40 @@ M.classic = Mood.new{
     name = "Classic",
 }
 
--- SUNRISE — cool dawn pink/lavender felt, low-amber sunburst from the
--- bottom-left horizon corner. Stays well clear of the cards.
+-- SUNRISE — warm golden dawn. A real sun sits in the top-right sky with
+-- golden rays fanning across the upper canvas, the felt is a warm morning
+-- grass, and a soft amber ambient washes the whole scene. Sun + rays stay
+-- in the top band, well clear of every hand.
 M.sunrise = Mood.new{
     id         = "sunrise",
     name       = "Sunrise",
-    felt       = {0.20, 0.32, 0.36},     -- cool pre-dawn teal
-    felt_inner = {0.16, 0.27, 0.31},
-    ambient    = {1.00, 0.72, 0.55, 0.05},  -- warm tint on top of everything
+    felt       = {0.22, 0.34, 0.17},     -- warm morning grass (was cool teal)
+    felt_inner = {0.18, 0.30, 0.14},
+    ambient    = {1.00, 0.74, 0.40, 0.09},  -- golden wash over everything
     drawDeco   = function(self)
-        -- Sun cresting from the bottom-right horizon (off-canvas, only rays
-        -- show). Rays sweep into the top half so they never touch the hands.
-        sunburst(C.SW + 80, C.SH + 40, 90, 720, 26,
-            {1.0, 0.82, 0.55}, 0.06,
-            math.pi * 1.05, math.pi * 0.85)
-        -- Echo a softer second sunburst in the opposite corner
-        sunburst(-60, -40, 70, 520, 18,
-            {1.0, 0.78, 0.85}, 0.04,
-            math.pi * 0.05, math.pi * 0.85)
-        -- Three petal medallions at the upper corners (small, low alpha)
-        tribalMedallion(80,         70,         50, 8, {1.0, 0.82, 0.78}, 0.12)
-        tribalMedallion(C.SW - 80,  70,         50, 8, {1.0, 0.82, 0.78}, 0.12)
+        local SUN_X, SUN_Y, SUN_R = C.SW - 150, 116, 50
+        -- Golden rays fanning DOWN/OUT from the sun, swept so they stay in the
+        -- top half and never reach the hands. Drawn first so the disc sits on top.
+        sunburst(SUN_X, SUN_Y, SUN_R * 0.9, 900, 30,
+            {1.00, 0.86, 0.45}, 0.07,
+            math.pi * 0.42, math.pi * 1.16)
+        -- A second, tighter set of brighter rays for sparkle near the disc.
+        sunburst(SUN_X, SUN_Y, SUN_R * 1.05, 360, 16,
+            {1.00, 0.93, 0.62}, 0.10,
+            math.pi * 0.50, math.pi * 1.00)
+        -- The sun itself.
+        sunDisc(SUN_X, SUN_Y, SUN_R, {1.00, 0.80, 0.32}, {1.00, 0.78, 0.40}, 1.0)
+        -- A faint warm horizon glow band low across the table edges (behind the
+        -- inner oval) to suggest early light pooling on the felt.
+        for i = 1, 5 do
+            love.graphics.setColor(1.00, 0.72, 0.34, 0.035 * (6 - i))
+            love.graphics.ellipse("fill", C.SW / 2, C.SH * 0.30,
+                C.SW * (0.45 + i * 0.06), 30 + i * 10)
+        end
+        -- A single soft petal medallion in the opposite (top-left) corner to
+        -- balance the composition.
+        tribalMedallion(96, 92, 52, 8, {1.0, 0.86, 0.62}, 0.10)
+        love.graphics.setColor(1, 1, 1, 1)
     end,
 }
 

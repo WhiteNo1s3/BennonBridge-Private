@@ -716,35 +716,174 @@ local function drawScorePanel(game)
     love.graphics.print(string.format("E-W : %d", game.sessionScore[2]), x+8, y+50)
 end
 
+-- ── Seat badges: compass direction glyph + role chip ───────────────────────
+-- A product-grade replacement for the old "[D]/[dum]" text tags. Each seat
+-- gets a small vector compass token (dark disc, accent ring, a needle pointing
+-- the seat's true bearing, and the N/E/S/W letter) plus an optional rounded
+-- role chip ("DECLARER" / "DUMMY"). Pure vector — crisp at 4K/tablet.
+
+local SEAT_LETTER = {
+    [C.NORTH] = "N", [C.EAST] = "E", [C.SOUTH] = "S", [C.WEST] = "W",
+}
+-- Screen bearing of each seat (radians; 0 = +x/east, clockwise in screen space)
+local SEAT_BEARING = {
+    [C.NORTH] = -math.pi/2, [C.EAST] = 0, [C.SOUTH] = math.pi/2, [C.WEST] = math.pi,
+}
+
+-- Accent colour + active flag for a seat given the current game state.
+local function seatAccent(game, p)
+    if game.currentPlayer == p then return PAL.yellow, true end
+    if game.declarer    == p then return {0.42, 0.92, 0.48}, false end
+    if game.dummy       == p then return {0.98, 0.74, 0.30}, false end
+    return {0.58, 0.65, 0.76}, false
+end
+
+-- Small rounded role chip centred on (cx,cy). Returns its width/height.
+local function drawRoleChip(cx, cy, text, bg)
+    love.graphics.setFont(fonts.tiny)
+    local tw   = fonts.tiny:getWidth(text)
+    local pad  = 7
+    local w, h = tw + pad*2, 17
+    local x, y = cx - w/2, cy - h/2
+    setColor(0, 0, 0, 0.35)
+    love.graphics.rectangle("fill", x+1, y+1, w, h, 8)
+    setColor(bg[1], bg[2], bg[3], 0.96)
+    love.graphics.rectangle("fill", x, y, w, h, 8)
+    setColor(1, 1, 1, 0.96)
+    love.graphics.print(text, x + pad, y + (h - fonts.tiny:getHeight())/2)
+    return w, h
+end
+
+-- The compass token. r = disc radius.
+local function compassToken(cx, cy, r, seat, accent, active)
+    -- Drop shadow
+    setColor(0, 0, 0, 0.38)
+    love.graphics.circle("fill", cx + 1, cy + 2, r)
+    -- Base disc (dark slate)
+    setColor(0.13, 0.15, 0.20, 0.96)
+    love.graphics.circle("fill", cx, cy, r)
+    -- Glow halo when it's this seat's turn
+    if active then
+        for i = 1, 3 do
+            setColor(accent[1], accent[2], accent[3], 0.12 * (4 - i))
+            love.graphics.circle("line", cx, cy, r + i * 2.4)
+        end
+    end
+    -- Accent ring
+    love.graphics.setLineWidth(active and 3 or 2)
+    setColor(accent[1], accent[2], accent[3], active and 1.0 or 0.72)
+    love.graphics.circle("line", cx, cy, r)
+    love.graphics.setLineWidth(1)
+    -- Four cardinal markers on the INSIDE of the rim. The seat's own bearing
+    -- gets an accent wedge pointing inward (kept fully inside the disc, so it
+    -- never pokes off-screen on the East/West edges); the other three are
+    -- small faint dots. This reads as a compass without any clipping.
+    local da = SEAT_BEARING[seat]
+    for i = 0, 3 do
+        local a = -math.pi/2 + i * math.pi/2
+        if math.abs(((a - da + math.pi) % (math.pi*2)) - math.pi) < 0.01 then
+            -- seat's own direction: a short accent wedge inset from the rim,
+            -- pointing toward the centre
+            local baseR = r - 2.5
+            local tipR  = r - 8.5
+            local tipx  = cx + math.cos(a) * tipR
+            local tipy  = cy + math.sin(a) * tipR
+            local b1x   = cx + math.cos(a + 0.42) * baseR
+            local b1y   = cy + math.sin(a + 0.42) * baseR
+            local b2x   = cx + math.cos(a - 0.42) * baseR
+            local b2y   = cy + math.sin(a - 0.42) * baseR
+            setColor(accent[1], accent[2], accent[3], 0.95)
+            love.graphics.polygon("fill", tipx, tipy, b1x, b1y, b2x, b2y)
+        else
+            local tx = cx + math.cos(a) * (r - 3.5)
+            local ty = cy + math.sin(a) * (r - 3.5)
+            setColor(1, 1, 1, 0.20)
+            love.graphics.circle("fill", tx, ty, 1.2)
+        end
+    end
+    -- Seat letter, centred
+    love.graphics.setFont(fonts.small)
+    local L  = SEAT_LETTER[seat]
+    local lw = fonts.small:getWidth(L)
+    local lh = fonts.small:getHeight()
+    setColor(1, 1, 1, 0.97)
+    love.graphics.print(L, cx - lw/2, cy - lh/2)
+end
+
+local function roleFor(game, p)
+    if game.declarer == p then return "DECLARER", {0.16, 0.46, 0.21} end
+    if game.dummy    == p then return "DUMMY",    {0.62, 0.42, 0.10} end
+    return nil
+end
+
 local function drawPlayerLabels(game)
-    -- positions: {cx, cy}
+    -- {cx, cy, layout}  layout "h" = horizontal plate (N/S), "v" = compact (E/W)
     local pos = {
-        [C.NORTH] = {C.SW/2, 136},
-        [C.EAST]  = {C.SW - 22, C.SH/2},
-        [C.SOUTH] = {C.SW/2, C.SH - 138},
-        [C.WEST]  = {22,     C.SH/2},
+        [C.NORTH] = {C.SW/2,      138,          "h"},
+        [C.SOUTH] = {C.SW/2,      C.SH - 138,   "h"},
+        [C.EAST]  = {C.SW - 34,   C.SH/2,       "v"},
+        [C.WEST]  = {34,          C.SH/2,       "v"},
     }
 
     for p, pt in pairs(pos) do
+        local cx, cy, mode = pt[1], pt[2], pt[3]
+        local accent, active = seatAccent(game, p)
         local name = C.PLAYER_NAMES[p]
-        local tags = ""
-        if game.declarer == p then tags = tags .. "[D]" end
-        if game.dummy    == p then tags = tags .. "[dum]" end
-        local label = name .. (game.hcp and string.format("(%d)", game.hcp[p]) or "")
-        if tags ~= "" then label = label .. " " .. tags end
+        local hcp  = game.hcp and game.hcp[p]
+        local role, roleBg = roleFor(game, p)
 
-        love.graphics.setFont(fonts.small)
-        if game.currentPlayer == p then
-            setColor(PAL.yellow)
-        elseif game.declarer == p then
-            setColor(0.4, 1.0, 0.4)
+        if mode == "h" then
+            -- Horizontal name-plate: [token]  Name / HCP  [chip]
+            local r       = 17
+            local gap     = 9
+            love.graphics.setFont(fonts.small)
+            local nameW   = fonts.small:getWidth(name)
+            love.graphics.setFont(fonts.tiny)
+            local hcpStr  = hcp and ("HCP " .. hcp) or ""
+            local hcpW    = fonts.tiny:getWidth(hcpStr)
+            local textW   = math.max(nameW, hcpW)
+            local chipW   = role and (fonts.tiny:getWidth(role) + 14) or 0
+            local chipGap = role and 9 or 0
+            local totalW  = r*2 + gap + textW + chipGap + chipW
+            local x0      = cx - totalW/2
+
+            compassToken(x0 + r, cy, r, p, accent, active)
+
+            local tx = x0 + r*2 + gap
+            love.graphics.setFont(fonts.small)
+            setColor(active and PAL.yellow or PAL.white)
+            love.graphics.print(name, tx, cy - 14)
+            love.graphics.setFont(fonts.tiny)
+            setColor(PAL.text_dim)
+            love.graphics.print(hcpStr, tx, cy + 3)
+
+            if role then
+                drawRoleChip(x0 + r*2 + gap + textW + chipGap + chipW/2, cy, role, roleBg)
+            end
         else
-            setColor(PAL.white)
+            -- Compact vertical token at the side edge. HCP under, chip over.
+            local r = 16
+            compassToken(cx, cy, r, p, accent, active)
+            if hcp then
+                love.graphics.setFont(fonts.tiny)
+                setColor(PAL.text_dim)
+                local s  = "HCP " .. hcp
+                local sw = fonts.tiny:getWidth(s)
+                -- keep on-screen: clamp the label box inside the canvas
+                local lx = math.max(2, math.min(C.SW - sw - 2, cx - sw/2))
+                setColor(0, 0, 0, 0.35)
+                love.graphics.rectangle("fill", lx - 3, cy + r + 2, sw + 6, 15, 6)
+                setColor(PAL.text_dim)
+                love.graphics.print(s, lx, cy + r + 4)
+            end
+            if role then
+                local cw = fonts.tiny:getWidth(role) + 14
+                local ccx = math.max(cw/2 + 2, math.min(C.SW - cw/2 - 2, cx))
+                drawRoleChip(ccx, cy - r - 12, role, roleBg)
+            end
         end
-
-        local tw = (fonts.small:getWidth(label))
-        love.graphics.print(label, pt[1] - tw/2, pt[2])
     end
+    setColor(1, 1, 1, 1)
 end
 
 -- ── Announcement / calling phase ───────────────────────────────────────────
@@ -1382,10 +1521,9 @@ function R.drawBidding(game, selSuit, selTricks, mx, my)
     drawHorizHand(game.hands[C.SOUTH], C.SW/2, C.SH - CH - 18, true, nil, nil, nil, false)
     drawHorizHand(game.hands[C.NORTH], C.SW/2, 18, true, nil, nil, nil, false)
 
-    love.graphics.setFont(fonts.tiny)
-    setColor(0.9, 0.7, 0.3)
-    local dw = (fonts.tiny:getWidth("DUMMY"))
-    love.graphics.print("DUMMY", C.SW/2 - dw/2, 126)
+    -- North is the partner whose hand is shown face-up: mark it with the same
+    -- product-grade chip used on the table, not a bare debug string.
+    drawRoleChip(C.SW/2, 128, "DUMMY", {0.62, 0.42, 0.10})
 
     drawScorePanel(game)
 
