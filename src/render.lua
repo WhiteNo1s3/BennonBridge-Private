@@ -157,6 +157,10 @@ end
 -- menu's, etc).
 local function drawMoodBackdrop(rx, ry)
     activeMood:drawBackdrop(rx, ry)
+    -- The corner vignette belongs to the TABLE, so it is drawn here — behind
+    -- the cards — not at frame-end over everything. This guarantees the
+    -- background never darkens or tints the cards themselves (cards on top).
+    R.drawVignette()
 end
 
 -- ── Vignette overlay ──────────────────────────────────────────────────────
@@ -438,15 +442,43 @@ R.drawPip = drawPip
 -- ── Card drawing ───────────────────────────────────────────────────────────
 
 
--- Draw a face-up card with top-left corner at (x,y)
-local function drawCardFace(x, y, card, highlight, dimmed)
-    local scol = C.SUIT_IS_RED[card.suit] and PAL.red_suit or PAL.black_suit
-
-    -- Shadow
+-- ── Unified card silhouette ────────────────────────────────────────────────
+-- Every card — number, court, ace, or back — is drawn through the SAME two
+-- calls so they all share one identical rounded-rectangle outline. The source
+-- PNGs are inconsistent (numbers 280x392, ace 270x392, courts 539x784, backs
+-- 275x392 with near-square corners). That left stray transparent edges, which
+-- (a) made a back a slightly different shape/size than a face — the "dink" —
+-- and (b) let the felt + mood decorations show through the corners onto the
+-- card. We now lay down an OPAQUE card-stock base and clip the artwork to a
+-- rounded rect with a stencil, so nothing behind a card can ever bleed onto
+-- it and faces/backs are pixel-identical in silhouette.
+local function beginCard(x, y, dimmed)
+    -- Drop shadow
     setColor(PAL.shadow)
     love.graphics.rectangle("fill", x+2, y+3, CW, CH, CR)
+    -- Opaque card-stock base (ivory) — the card is never see-through.
+    if dimmed then setColor(0.80, 0.80, 0.80) else setColor(252/255, 250/255, 244/255) end
+    love.graphics.rectangle("fill", x, y, CW, CH, CR)
+    -- Clip everything drawn before endCard() to the exact rounded card shape.
+    -- (stencil respects the current transform, so rotated E/W cards clip too.)
+    love.graphics.stencil(function()
+        love.graphics.rectangle("fill", x, y, CW, CH, CR)
+    end, "replace", 1)
+    love.graphics.setStencilTest("greater", 0)
+end
 
-    -- Highlight ring
+local function endCard(x, y, dimmed)
+    love.graphics.setStencilTest()
+    -- Crisp hairline border on the identical silhouette.
+    love.graphics.setLineWidth(1)
+    if dimmed then setColor(0.58, 0.58, 0.58) else setColor(208/255, 208/255, 208/255) end
+    love.graphics.rectangle("line", x, y, CW, CH, CR)
+    setColor(1, 1, 1)
+end
+
+-- Draw a face-up card with top-left corner at (x,y)
+local function drawCardFace(x, y, card, highlight, dimmed)
+    -- Highlight glow ring (drawn behind the card so only its rim peeks out)
     if highlight == "playable" then
         setColor(PAL.green_hi)
         love.graphics.rectangle("fill", x-3, y-3, CW+6, CH+6, CR+2)
@@ -455,48 +487,29 @@ local function drawCardFace(x, y, card, highlight, dimmed)
         love.graphics.rectangle("fill", x-4, y-4, CW+8, CH+8, CR+3)
     end
 
+    beginCard(x, y, dimmed)
     local img = cardImg[card.rank] and cardImg[card.rank][card.suit]
     if img then
-        local draw_x, draw_y = x, y
-        local target_w, target_h = CW, CH
-        
-        -- Numeric cards and Aces have a 5-unit transparent border in a 250x350 viewBox (240x340 visible)
-        -- To make the visible card exactly CW x CH, we scale by 250/240
-        if card.rank < 11 or card.rank == 14 then
-            local expand_x = 250 / 240
-            local expand_y = 350 / 340
-            target_w = CW * expand_x
-            target_h = CH * expand_y
-            -- Offset so it stays centered
-            draw_x = x - (target_w - CW) / 2
-            draw_y = y - (target_h - CH) / 2
-        else
-            -- If it's a face card, we draw the vintage ivory background first since their SVGs are transparent
-            if dimmed then setColor(0.75, 0.75, 0.75) else setColor(252/255, 250/255, 242/255) end
-            love.graphics.rectangle("fill", x, y, CW, CH, CR)
-            -- Subtle border
-            love.graphics.setLineWidth(1)
-            if dimmed then setColor(0.6, 0.6, 0.6) else setColor(208/255, 208/255, 208/255) end
-            love.graphics.rectangle("line", x, y, CW, CH, CR)
-        end
-        
-        -- Use SVG-rasterized face
-        if dimmed then setColor(0.75, 0.75, 0.75) else setColor(1, 1, 1) end
-        local sx, sy = target_w / img:getWidth(), target_h / img:getHeight()
-        love.graphics.draw(img, draw_x, draw_y, 0, sx, sy)
+        if dimmed then setColor(0.78, 0.78, 0.78) else setColor(1, 1, 1) end
+        -- Number cards and Aces carry a small transparent margin in their
+        -- source viewBox; expand a touch so the visible art reaches the card
+        -- edge. The stencil clips any overflow, so the silhouette stays exact.
+        local expand = (card.rank < 11 or card.rank == 14)
+        local tw = expand and CW * (250/240) or CW
+        local th = expand and CH * (350/340) or CH
+        local dx = x - (tw - CW) / 2
+        local dy = y - (th - CH) / 2
+        love.graphics.draw(img, dx, dy, 0, tw / img:getWidth(), th / img:getHeight())
     end
+    endCard(x, y, dimmed)
 end
 
 local function drawCardBack(x, y)
-    -- Drop shadow
-    setColor(PAL.shadow)
-    love.graphics.rectangle("fill", x+2, y+3, CW, CH, CR)
-
+    beginCard(x, y, false)
     if currentBack then
         setColor(1, 1, 1)
-        local sx = CW / currentBack:getWidth()
-        local sy = CH / currentBack:getHeight()
-        love.graphics.draw(currentBack, x, y, 0, sx, sy)
+        love.graphics.draw(currentBack, x, y, 0,
+            CW / currentBack:getWidth(), CH / currentBack:getHeight())
     else
         setColor(PAL.card_back_a)
         love.graphics.rectangle("fill", x, y, CW, CH, CR)
@@ -511,6 +524,7 @@ local function drawCardBack(x, y)
             love.graphics.line(x+5, fy, x+CW-5, fy)
         end
     end
+    endCard(x, y, false)
 end
 
 -- Draw a card rotated 90° around its centre point (cx,cy).
@@ -635,6 +649,32 @@ local function drawTrick(trick)
         local x, y = trickPos[entry.player]()
         drawCardFace(x, y, entry.card, nil, false)
     end
+end
+
+-- ── Runtime card scaling ────────────────────────────────────────────────────
+-- Re-scale every card-derived layout constant from a chosen base width. The
+-- draw functions all close over these module locals, so reassigning them here
+-- rescales the whole table coherently with no reload (images keep their linear
+-- filter and just draw at a new size). All seat badges, side-hand insets and
+-- the trick spread follow from CW/CH, so this stays consistent with the fix
+-- that keeps decorations off the cards.
+function R.setCardScale(sizeIdx)
+    local widths = C.CARD_SIZE_W
+    sizeIdx = math.max(1, math.min(#widths, math.floor(sizeIdx or C.CARD_SIZE_DEFAULT)))
+    local w = widths[sizeIdx]
+    CW = w
+    CH = math.floor(w * (134 / 96) + 0.5)
+    CR = math.max(4,  math.floor(w * (8  / 96) + 0.5))
+    OV = math.max(12, math.floor(w * (30 / 96) + 0.5))
+    SIDE_X     = CH / 2 + 8
+    SIDE_BADGE = CH + 30
+    -- Centre-trick offset: keep the original spacing where there's room, but
+    -- never let a played card collide the N/S hands at large sizes. The North
+    -- hand's bottom is 18+CH; the North trick card's top is 400-OFFSET-CH, so
+    -- we need OFFSET < 382 - 2*CH (leaving a 6px gap). Symmetric for South.
+    TRICK_OFFSET = math.floor(math.min(0.58 * CH, 382 - 2 * CH - 6))
+    if TRICK_OFFSET < 10 then TRICK_OFFSET = 10 end
+    R.CARD_SIZE = sizeIdx
 end
 
 -- ── Panels ─────────────────────────────────────────────────────────────────
@@ -2256,6 +2296,26 @@ function R.drawNewGameSetup(setupState, mx, my)
         local _, mnx, mny, mnw, mnh = button(">",
             C.SW/2 + 110, setY2, 28, 32, mx, my, PAL.btn_blue, PAL.btn_hover)
         hits[#hits+1] = {type="moodnext", x=mnx, y=mny, w=mnw, h=mnh}
+    end
+
+    -- ── Card size cycler (right of the weather / board row) ──
+    -- Scales the cards relative to the table. The table itself always responds
+    -- to the screen (letterbox viewport); this is the player's size preference.
+    do
+        local czX = C.SW/2 + 180
+        setColor(PAL.text_dim)
+        love.graphics.setFont(fonts.tiny)
+        love.graphics.print("Cards:", czX, setY2 + 10)
+        local _, cpx, cpy, cpw, cph = button("<",
+            czX + 48, setY2, 28, 32, mx, my, PAL.btn_blue, PAL.btn_hover)
+        hits[#hits+1] = {type="cardsizeprev", x=cpx, y=cpy, w=cpw, h=cph}
+        setColor(PAL.white)
+        centredText(fonts.med,
+            C.CARD_SIZE_NAMES[setupState.cardSize or C.CARD_SIZE_DEFAULT],
+            czX + 130, setY2 + 16)
+        local _, cnx, cny, cnw, cnh = button(">",
+            czX + 184, setY2, 28, 32, mx, my, PAL.btn_blue, PAL.btn_hover)
+        hits[#hits+1] = {type="cardsizenext", x=cnx, y=cny, w=cnw, h=cnh}
     end
 
     -- ── Deal button + Back ──
