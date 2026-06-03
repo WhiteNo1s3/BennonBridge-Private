@@ -99,4 +99,12 @@ C.CARD_H       = 134
 C.CARD_RADIUS  = 8
 C.CARD_OVERLAP = 30   -- horizontal/vertical overlap in a fan
 
+-- Player-selectable card sizes. Each entry is a base card WIDTH; render.lua's
+-- R.setCardScale() derives height (~70:98 aspect), corner radius, fan overlap
+-- and the centre-trick offset from it. The top end is capped so all four
+-- hands plus the centre trick still fit inside the 1280x800 virtual table.
+C.CARD_SIZE_NAMES   = {"Small", "Medium", "Regular", "Big", "Bigger", "Biggest"}
+C.CARD_SIZE_W       = {72, 84, 96, 108, 120, 128}
+C.CARD_SIZE_DEFAULT = 3   -- "Regular" (matches C.CARD_W above)
+
 return C

@@ -111,6 +111,7 @@ function love.load()
         introAnim = true,    -- deal animation at start of hand
         soundOn   = true,    -- master sound toggle
         backTheme = 1,       -- 1..9 (rotates through card-back PNGs)
+        cardSize  = C.CARD_SIZE_DEFAULT,   -- 1..6 (Small..Biggest); see constants
         -- Table mood (V2): when weatherOn is true the board re-themes itself
         -- by wall-clock time; otherwise it sticks to the player-chosen moodId.
         weatherOn = true,
@@ -122,6 +123,7 @@ function love.load()
         },
     }
     R.setMood(setupState)
+    R.setCardScale(setupState.cardSize)
     game.state = C.STATE_MENU
 end
 
@@ -203,9 +205,8 @@ function love.draw()
         resultHits = R.drawMatchSummary(game, mx, my)
     end
 
-    -- Subtle vignette overlay on top of everything (still in virtual space,
-    -- so it scales with the window).
-    R.drawVignette()
+    -- (Vignette now drawn inside each screen's backdrop, BEHIND the cards, so
+    -- the background never sits on top of a card.)
 
     V.drawEnd()
 end
@@ -351,6 +352,16 @@ function onSetupClick(x, y)
             setupState.backTheme = (setupState.backTheme % R.BACK_COUNT) + 1
             R.setBackTheme(setupState.backTheme)
         end
+
+    elseif h.type == "cardsizeprev" then
+        local n = #C.CARD_SIZE_W
+        setupState.cardSize = ((setupState.cardSize - 2) % n) + 1
+        R.setCardScale(setupState.cardSize)
+
+    elseif h.type == "cardsizenext" then
+        local n = #C.CARD_SIZE_W
+        setupState.cardSize = (setupState.cardSize % n) + 1
+        R.setCardScale(setupState.cardSize)
 
     elseif h.type == "weather" then
         setupState.weatherOn = not setupState.weatherOn
