@@ -23,8 +23,16 @@ powershell -NoProfile -Command ^
   "[System.IO.File]::WriteAllBytes('%PROJ%\dist\Bridge\Bridge.exe',$b)"
 if errorlevel 1 ( echo FAILED to fuse exe & exit /b 1 )
 
-echo [3/3] Copying runtime DLLs...
+echo [3/4] Copying runtime DLLs...
 for %%F in (SDL2.dll OpenAL32.dll love.dll lua51.dll mpg123.dll msvcp120.dll msvcr120.dll license.txt) do copy /Y "%LOVE%\%%F" "%PROJ%\dist\Bridge\" >nul
+
+echo [4/4] Branding the EXE (icon + version strings)...
+if exist "C:\Dev\rcedit.exe" (
+  "C:\Dev\rcedit.exe" "%PROJ%\dist\Bridge\Bridge.exe" --set-icon "%PROJ%\assets\icon\Bridge.ico" --set-version-string ProductName "Bridge" --set-version-string FileDescription "Bridge" --set-version-string CompanyName "Whiteno1se" --set-version-string OriginalFilename "Bridge.exe"
+) else (
+  echo   [skip] C:\Dev\rcedit.exe not found - EXE keeps the default LOVE icon.
+  echo          Get it from https://github.com/electron/rcedit/releases and save as C:\Dev\rcedit.exe
+)
 
 echo.
 echo DONE.  Run:  %PROJ%\dist\Bridge\Bridge.exe
