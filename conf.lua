@@ -2,7 +2,7 @@ function love.conf(t)
     t.title   = "Bridge"
     -- Window / taskbar icon (also used by the fused .exe at runtime). A single
     -- high-res PNG; LÖVE downscales it for the title bar and taskbar.
-    t.window.icon = "assets/icon/Icon.png"
+    t.window.icon = "assets/Icon/Icon.png"
     -- Dev runtime is LÖVE 11.5 (current public release). When packaging the
     -- Android build, flip this to whatever love-android ships with (12.x).
     -- Keeping this in sync with the installed runtime silences the
