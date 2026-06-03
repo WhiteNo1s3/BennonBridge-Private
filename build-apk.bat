@@ -32,7 +32,7 @@ copy /Y "%PROJ%\dist\game.love" "%LOVEANDROID%\app\src\embed\assets\game.love" >
 
 echo [3/4] Building APK with Gradle (this can take a minute)...
 pushd "%LOVEANDROID%"
-call gradlew.bat assembleEmbedNoRecordDebug --console=plain
+call "%LOVEANDROID%\gradlew.bat" assembleEmbedNoRecordDebug --console=plain
 set "ERR=%ERRORLEVEL%"
 popd
 if not "%ERR%"=="0" ( echo BUILD FAILED ^(gradle exit %ERR%^) & exit /b %ERR% )
