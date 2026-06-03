@@ -821,8 +821,10 @@ local function drawPlayerLabels(game)
     local pos = {
         [C.NORTH] = {C.SW/2,      138,          "h"},
         [C.SOUTH] = {C.SW/2,      C.SH - 138,   "h"},
-        [C.EAST]  = {C.SW - 34,   C.SH/2,       "v"},
-        [C.WEST]  = {34,          C.SH/2,       "v"},
+        -- Inboard of the side hands (cards span x 6-104 / 1176-1274), in clear
+        -- felt at vertical centre, so the token never sits on top of the cards.
+        [C.EAST]  = {C.SW - 138,  C.SH/2,       "v"},
+        [C.WEST]  = {138,         C.SH/2,       "v"},
     }
 
     for p, pt in pairs(pos) do
