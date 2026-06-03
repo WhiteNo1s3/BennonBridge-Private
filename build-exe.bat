@@ -28,7 +28,7 @@ for %%F in (SDL2.dll OpenAL32.dll love.dll lua51.dll mpg123.dll msvcp120.dll msv
 
 echo [4/4] Branding the EXE (icon + version strings)...
 if exist "C:\Dev\rcedit.exe" (
-  "C:\Dev\rcedit.exe" "%PROJ%\dist\Bridge\Bridge.exe" --set-icon "%PROJ%\assets\icon\Bridge.ico" --set-version-string ProductName "Bridge" --set-version-string FileDescription "Bridge" --set-version-string CompanyName "Whiteno1se" --set-version-string OriginalFilename "Bridge.exe"
+  "C:\Dev\rcedit.exe" "%PROJ%\dist\Bridge\Bridge.exe" --set-icon "%PROJ%\assets\Icon\Bridge.ico" --set-version-string ProductName "Bridge" --set-version-string FileDescription "Bridge" --set-version-string CompanyName "Whiteno1se" --set-version-string OriginalFilename "Bridge.exe"
 ) else (
   echo   [skip] C:\Dev\rcedit.exe not found - EXE keeps the default LOVE icon.
   echo          Get it from https://github.com/electron/rcedit/releases and save as C:\Dev\rcedit.exe
