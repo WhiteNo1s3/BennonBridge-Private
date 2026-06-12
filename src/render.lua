@@ -508,8 +508,25 @@ local function drawCardBack(x, y)
     beginCard(x, y, false)
     if currentBack then
         setColor(1, 1, 1)
-        love.graphics.draw(currentBack, x, y, 0,
-            CW / currentBack:getWidth(), CH / currentBack:getHeight())
+        -- The back PNGs are 275×392 (aspect 0.7015), while our card silhouette
+        -- is 70×98 (aspect 0.7143), AND every back PNG has a coloured frame
+        -- drawn into the bitmap at a slightly different inset than the face
+        -- cards' borders. If we just scale-to-fit, the visible "edge" of a
+        -- face vs. a back looks subtly different — backs read as a slightly
+        -- different shape, which is the "dink" we've been chasing.
+        --
+        -- Fix: oversize the back so its outer ~5 % (where that embedded
+        -- frame lives) is cropped by the stencil. What remains is the
+        -- interior art, and the only visible silhouette is the ivory
+        -- card-stock + the hairline border drawn in endCard() — exactly the
+        -- same outline the face cards use.
+        local INSET = 0.055
+        local tw    = CW / (1 - 2 * INSET)
+        local th    = CH / (1 - 2 * INSET)
+        local dx    = x - (tw - CW) / 2
+        local dy    = y - (th - CH) / 2
+        love.graphics.draw(currentBack, dx, dy, 0,
+            tw / currentBack:getWidth(), th / currentBack:getHeight())
     else
         setColor(PAL.card_back_a)
         love.graphics.rectangle("fill", x, y, CW, CH, CR)
