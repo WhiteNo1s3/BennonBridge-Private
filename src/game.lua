@@ -19,6 +19,7 @@ function Game.new()
     g.difficulty   = {C.MEDIUM, C.MEDIUM, C.MEDIUM, C.MEDIUM}
     g.aiTimer      = 0
     g.aiDelay      = 0.75      -- seconds between AI actions
+    g.trickLinger  = 1.4       -- completed trick stays on the table this long
     return g
 end
 
@@ -312,8 +313,10 @@ function Game:_updatePlaying(dt)
 end
 
 function Game:_updateTrickEnd(dt)
+    -- Let the completed trick sit on the table long enough to read all four
+    -- cards before they're swept (longer than the AI play cadence on purpose).
     self.aiTimer = self.aiTimer + dt
-    if self.aiTimer < self.aiDelay then return end
+    if self.aiTimer < (self.trickLinger or self.aiDelay) then return end
     self.aiTimer = 0
     self:_startNextTrick()
 end

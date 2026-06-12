@@ -570,8 +570,11 @@ local OV = C.CARD_OVERLAP
 local SIDE_X     = CH/2 + 8     -- West baseCX (East = SW - SIDE_X)
 local SIDE_BADGE = CH + 30      -- West E/W badge x (East = SW - SIDE_BADGE)
 
--- Horizontal fan, face-up (South or North)
-local function drawHorizHand(hand, baseX, baseY, faceUp, playableSet, selectedIdx, hoverIdx, flip)
+-- Horizontal fan, face-up (South or North).
+-- `revealCard` (optional): that card is pulled out of the fan and drawn LAST,
+-- lifted clear of its neighbours, so the whole face is readable in place —
+-- the long-press "peek" for crowded hands.
+local function drawHorizHand(hand, baseX, baseY, faceUp, playableSet, selectedIdx, hoverIdx, flip, revealCard)
     local n = #hand
     if n == 0 then return {} end
     local totalW = (n-1)*OV + CW
@@ -583,6 +586,8 @@ local function drawHorizHand(hand, baseX, baseY, faceUp, playableSet, selectedId
     -- automatically by the hover state cleanup in R.update).
     local dt = love.timer.getDelta() or 0
     local k  = math.min(1, dt * 14)
+
+    local revealX = nil   -- fan x of the revealed card (drawn after the loop)
 
     for i, card in ipairs(hand) do
         local x = sx + (i-1)*OV
@@ -605,17 +610,41 @@ local function drawHorizHand(hand, baseX, baseY, faceUp, playableSet, selectedId
         local liftSel = flip and 12 or -14
         local dy = liftHov * hp + liftSel * sp
 
+        local isReveal = revealCard and faceUp
+            and card.rank == revealCard.rank and card.suit == revealCard.suit
+
         local hl = nil
         if selectedIdx == i then hl = "selected"
         elseif playableSet and playableSet[i] then hl = "playable" end
 
-        if faceUp then
+        if isReveal then
+            revealX = x        -- deferred: drawn above the neighbours below
+        elseif faceUp then
             drawCardFace(x, baseY + dy, card, hl, false)
         else
             drawCardBack(x, baseY + dy)
         end
         hits[#hits+1] = {card=card, x=x, y=baseY+dy, w=CW, h=CH, idx=i}
     end
+
+    -- Long-press reveal: ease the card out of the fan, far enough that no
+    -- neighbour covers it (one full overlap step is hidden, so OV..CW of the
+    -- face is normally invisible). Slides ~62% of a card height clear.
+    if revealX then
+        local rk = "reveal:" .. revealCard.rank .. ":" .. revealCard.suit
+        hoverSeen[rk] = true
+        local prev = hoverProgress[rk] or 0
+        local raw  = prev + (1 - prev) * math.min(1, dt * 10)
+        hoverProgress[rk] = raw
+        local p = easeOutCubic(raw)
+
+        -- Lift towards the table centre: top hand slides down, bottom slides
+        -- up — never off-screen, always clear of the fan.
+        local dir  = (baseY < C.SH/2) and 1 or -1
+        local lift = dir * (CH * 0.62) * p
+        drawCardFace(revealX, baseY + lift, revealCard, "selected", false)
+    end
+
     return hits
 end
 
@@ -1618,7 +1647,7 @@ R.drawAnnouncement = nil
 -- ── Public draw functions ──────────────────────────────────────────────────
 
 -- Draw main playing table. Returns southHits, northHits, eastHits, westHits.
-function R.drawGame(game, southSel, southHov, northSel, northHov)
+function R.drawGame(game, southSel, southHov, northSel, northHov, revealCard)
     drawMoodBackdrop(430, 310)
 
     -- Determine face-up and playable sets
@@ -1653,11 +1682,12 @@ function R.drawGame(game, southSel, southHov, northSel, northHov)
     local eFace = (game.dummy == C.EAST)  or false
     local wFace = (game.dummy == C.WEST)  or false
 
-    -- Draw hands
+    -- Draw hands (revealCard is matched by identity, so passing it to both
+    -- horizontal hands is safe — only the owner lifts it)
     local nHits = drawHorizHand(game.hands[C.NORTH], C.SW/2, 18,
-                    nFace, nPlayable, northSel, northHov, false)
+                    nFace, nPlayable, northSel, northHov, false, revealCard)
     local sHits = drawHorizHand(game.hands[C.SOUTH], C.SW/2, C.SH - CH - 18,
-                    sFace, sPlayable, southSel, southHov, false)
+                    sFace, sPlayable, southSel, southHov, false, revealCard)
     local eHits = drawVertHand(game.hands[C.EAST], C.SW - SIDE_X, C.SH/2,
                     math.pi/2, eFace, ePlayable)
     local wHits = drawVertHand(game.hands[C.WEST], SIDE_X, C.SH/2,
@@ -1697,41 +1727,23 @@ function R.drawGame(game, southSel, southHov, northSel, northHov)
     return sHits, nHits, eHits, wHits
 end
 
--- ── Long-press magnifier ────────────────────────────────────────────────────
--- Shows one card huge in the middle of the table (crowded fans stay readable
--- for anyone who can't make out the small corner indices). Draw LAST so it
--- floats above everything.
-function R.drawMagnifier(card)
-    setColor(0, 0, 0, 0.55)
-    love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
-
-    local s  = math.min(3.2, (C.SH * 0.78) / CH)
-    local mw, mh = CW * s, CH * s
-    local cx, cy = C.SW/2, C.SH/2 - 14
-
-    love.graphics.push()
-    love.graphics.translate(cx - mw/2, cy - mh/2)
-    love.graphics.scale(s, s)
-    drawCardFace(0, 0, card, nil, false)
-    love.graphics.pop()
-
-    setColor(PAL.text_dim)
-    centredText(fonts.small, "Release to close", cx, cy + mh/2 + 24)
-end
+-- (The old full-screen magnifier was replaced by the in-fan long-press
+-- reveal inside drawHorizHand — the card slides out of the fan in place.)
 
 -- ── In-game options popover ────────────────────────────────────────────────
--- A small "Options" trigger in the top-left corner of the table (clear of the
--- West fan) opening a panel with the card-size slider. The table re-lays-out
--- live while the knob is dragged, so the player tunes size in full context.
+-- A small "Options" trigger just below the scoreboard (which owns the
+-- top-left corner at 8,8..185x76) opening a panel with the card-size slider.
+-- The table re-lays-out live while the knob is dragged, so the player tunes
+-- size in full context.
 function R.drawGameOptions(optsOpen, mx, my)
     local hits = {}
 
     local _, gx, gy, gw, gh = button(optsOpen and "Close" or "Options",
-        15, 12, 96, 34, mx, my, PAL.btn_blue, PAL.btn_hover)
+        8, 90, 110, 30, mx, my, PAL.btn_blue, PAL.btn_hover)
     hits[#hits+1] = {type = "optsgear", x = gx, y = gy, w = gw, h = gh}
 
     if optsOpen then
-        local px, py, pw, ph = 15, 56, 330, 102
+        local px, py, pw, ph = 8, 128, 330, 102
         setColor(0, 0, 0, 0.4)
         love.graphics.rectangle("fill", px + 3, py + 4, pw, ph, 10)
         setColor(0x2C/255, 0x30/255, 0x3A/255, 0.97)
@@ -2247,7 +2259,7 @@ function R.drawResult(game, setupState, mx, my)
 end
 
 -- ── Main menu ──────────────────────────────────────────────────────────────
-function R.drawMainMenu(mx, my)
+function R.drawMainMenu(setupState, mx, my)
     -- Breathing inner oval so the table feels alive (radii pulse ~0.9 Hz).
     local t = love.timer.getTime()
     local breath = 0.5 + 0.5 * math.sin(t * 0.9)
@@ -2286,9 +2298,17 @@ function R.drawMainMenu(mx, my)
                               {0.15, 0.55, 0.22}, {0.22, 0.78, 0.30})
     hits[#hits+1] = {type="newgame", x=x,y=y,w=w,h=h}
 
-    local _, ox,oy,ow,oh = button("Options", cx - 100, 390, 200, 48, mx, my,
-                                  PAL.btn_blue, PAL.btn_hover)
-    hits[#hits+1] = {type="options", x=ox,y=oy,w=ow,h=oh}
+    -- Mode toggle (replaces the old dead "Options" button): play South
+    -- yourself, or sit back and watch the AI take your seat. Switching TO
+    -- spectator asks for confirmation so a touchscreen mis-tap can't put
+    -- you on the bench by accident.
+    local spect = setupState and setupState.autoSouth
+    local mCol  = spect and {0.70, 0.40, 0.10} or PAL.btn_blue
+    local mHCol = spect and {0.85, 0.50, 0.18} or PAL.btn_hover
+    local _, ox,oy,ow,oh = button(
+        spect and "Mode: Spectator (CPU plays South)" or "Mode: You play South",
+        cx - 160, 390, 320, 48, mx, my, mCol, mHCol)
+    hits[#hits+1] = {type="mode", x=ox,y=oy,w=ow,h=oh}
 
     local _, x2,y2,w2,h2 = button("Quit", cx - 80, 460, 160, 44, mx, my,
                                   PAL.btn_blue, PAL.btn_hover)
@@ -2297,6 +2317,37 @@ function R.drawMainMenu(mx, my)
     setColor(PAL.text_dim)
     centredText(fonts.tiny, "You play as South (bottom).  Partners: North-South vs East-West.", C.SW/2, C.SH - 60)
     centredText(fonts.tiny, "Highest-HCP partnership declares.  Window is resizable.",            C.SW/2, C.SH - 44)
+
+    -- Spectator confirmation dialog: floats above the menu, and while open
+    -- it owns ALL the hits so nothing behind it can be pressed by mistake.
+    if setupState and setupState.confirmSpectator then
+        hits = {}
+        setColor(0, 0, 0, 0.60)
+        love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
+
+        local dw, dh = 480, 170
+        local dx2, dy2 = cx - dw/2, C.SH/2 - dh/2
+        setColor(0, 0, 0, 0.4)
+        love.graphics.rectangle("fill", dx2 + 4, dy2 + 5, dw, dh, 12)
+        setColor(0x2C/255, 0x30/255, 0x3A/255, 0.98)
+        love.graphics.rectangle("fill", dx2, dy2, dw, dh, 12)
+        setColor(0x3A/255, 0x40/255, 0x4A/255)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", dx2, dy2, dw, dh, 12)
+        love.graphics.setLineWidth(1)
+
+        setColor(PAL.white)
+        centredText(fonts.med, "Are you sure you want to be a spectator?", cx, dy2 + 38)
+        setColor(PAL.text_dim)
+        centredText(fonts.small, "The CPU will play your South seat (CPU vs CPU).", cx, dy2 + 66)
+
+        local _, yx, yy, yw, yh = button("Yes", cx - 140, dy2 + dh - 64, 120, 44,
+            mx, my, {0.70, 0.40, 0.10}, {0.85, 0.50, 0.18})
+        hits[#hits+1] = {type="spec_yes", x=yx, y=yy, w=yw, h=yh}
+        local _, nx2, ny2, nw2, nh2 = button("No", cx + 20, dy2 + dh - 64, 120, 44,
+            mx, my, PAL.btn_blue, PAL.btn_hover)
+        hits[#hits+1] = {type="spec_no", x=nx2, y=ny2, w=nw2, h=nh2}
+    end
 
     return hits
 end
@@ -2365,18 +2416,11 @@ function R.drawNewGameSetup(setupState, mx, my)
         C.SW/2 - 190, matchRowY, 380, 32, mx, my, matchCol, matchHCol)
     hits[#hits+1] = {type="match_toggle", x=mmx, y=mmy, w=mmw, h=mmh}
 
-    -- ── Auto-play South toggle (CPU plays your seat too) ──
-    local autoRowY = matchRowY + 44
-    local autoCol  = setupState.autoSouth and {0.70, 0.40, 0.10} or PAL.btn_blue
-    local autoHCol = setupState.autoSouth and {0.85, 0.50, 0.18} or PAL.btn_hover
-    local _, ax,ay,aw,ah = button(
-        setupState.autoSouth and "Auto-play South: ON (CPU vs CPU)"
-                             or  "Auto-play South: OFF (you play)",
-        C.SW/2 - 190, autoRowY, 380, 32, mx, my, autoCol, autoHCol)
-    hits[#hits+1] = {type="autosouth", x=ax, y=ay, w=aw, h=ah}
+    -- (Auto-play South / spectator mode now lives in the MAIN MENU as the
+    -- "Mode" button, with its own confirmation dialog.)
 
     -- ── Difficulty rows ──
-    local diffTitleY = autoRowY + 44
+    local diffTitleY = matchRowY + 44
     setColor(PAL.white)
     love.graphics.setFont(fonts.med)
     centredText(fonts.med, "AI Difficulty", C.SW/2, diffTitleY)

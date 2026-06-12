@@ -43,25 +43,20 @@ local CARD_H       = C.CARD_H
 local OVERLAP      = C.CARD_OVERLAP
 local SIDE_X       = C.CARD_H / 2 + 8
 
+-- Both return the CENTRE of the slot's card (drawDealing rotates around the
+-- centre), mirroring render.drawHorizHand / drawVertHand exactly:
+--   horiz:  x = baseX - span/2 + (i-1)*OV  (top-left)  → centre adds CARD_W/2
+--   vert:   cy = baseY - span/2 + (i-1)*OV + CARD_W/2  for BOTH East and West
+-- (The old version ran West's fan upward and returned edge coords — cards
+-- landed mirrored/half-a-card off, then snapped when the real hand drew.)
 local function horizFanXY(baseCX, baseCY, slot, total)
-    -- slot is 1..total. mirrors drawHorizHand layout.
     local span = (total - 1) * OVERLAP + CARD_W
-    local x0   = baseCX - span / 2
-    return x0 + (slot - 1) * OVERLAP, baseCY
+    return baseCX - span/2 + (slot - 1) * OVERLAP + CARD_W/2, baseCY
 end
 
-local function vertFanXY(baseCX, baseCY, slot, total, angle)
+local function vertFanXY(baseCX, baseCY, slot, total)
     local span = (total - 1) * OVERLAP + CARD_W
-    local p0   = -span / 2
-    local p    = p0 + (slot - 1) * OVERLAP
-    -- For a vertical hand we treat the fan along the local x-axis then rotate
-    local dx, dy
-    if angle > 0 then        -- East: rotated +90°, fan runs top->bottom
-        dx, dy = 0, p
-    else                     -- West: rotated -90°, fan runs bottom->top
-        dx, dy = 0, -p
-    end
-    return baseCX + dx, baseCY + dy
+    return baseCX, baseCY - span/2 + (slot - 1) * OVERLAP + CARD_W/2
 end
 
 -- Public: start a fresh deal animation for the four hands.
@@ -108,7 +103,7 @@ function A.startDeal(hands, dealer)
         if pos.horiz then
             toX, toY = horizFanXY(pos.cx, pos.cy, slots[player], 13)
         else
-            toX, toY = vertFanXY(pos.cx, pos.cy, slots[player], 13, pos.angle)
+            toX, toY = vertFanXY(pos.cx, pos.cy, slots[player], 13)
         end
 
         A.cards[i] = {
