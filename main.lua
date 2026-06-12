@@ -208,7 +208,7 @@ function love.draw()
     local mx, my = V.mouseVirtual()
 
     if game.state == C.STATE_MENU then
-        mainMenuHits = R.drawMainMenu(mx, my)
+        mainMenuHits = R.drawMainMenu(setupState, mx, my)
 
     elseif game.state == C.STATE_NEWGAME then
         setupHits = R.drawNewGameSetup(setupState, mx, my)
@@ -221,8 +221,10 @@ function love.draw()
 
     elseif game.state == C.STATE_PLAYING
         or game.state == C.STATE_TRICK_END then
+        -- magnifyCard (long-press) is passed as the reveal card: it slides
+        -- out of its fan in place rather than covering the table.
         southHits, northHits = R.drawGame(
-            game, southSel, southHov, northSel, northHov)
+            game, southSel, southHov, northSel, northHov, magnifyCard)
         -- In-game options trigger + popover (card-size slider, live)
         gameOptsHits = R.drawGameOptions(gameOptsOpen, mx, my)
 
@@ -235,11 +237,6 @@ function love.draw()
 
     -- (Vignette now drawn inside each screen's backdrop, BEHIND the cards, so
     -- the background never sits on top of a card.)
-
-    -- Long-press magnifier floats above absolutely everything
-    if magnifyCard then
-        R.drawMagnifier(magnifyCard)
-    end
 
     V.drawEnd()
 end
@@ -255,6 +252,21 @@ local function applyCardSlider(h, x)
     R.setCardScale(setupState.cardW)
 end
 
+-- Whose cards may the human click right now? (South always; plus dummy when
+-- South declares. Spectator mode plays nothing — game.autoSouth gates that
+-- in Game:_isHumanTurn, but clicks are also ignored via onPlayPress.)
+local function isHumanTurnFor(p)
+    if game.declaringSide == "NS" then
+        if game.declarer == C.SOUTH then
+            return p == C.SOUTH or p == game.dummy
+        else
+            return false
+        end
+    else
+        return p == C.SOUTH
+    end
+end
+
 function love.mousemoved(x, y)
     x, y = V.toVirtual(x, y)
 
@@ -262,6 +274,29 @@ function love.mousemoved(x, y)
     if sliderDrag and love.mouse.isDown(1) then
         applyCardSlider(sliderDrag, x)
         return
+    end
+
+    -- Swipe-to-play (touch friendly): press a card and flick it towards the
+    -- table centre — up from the South hand, down from the dummy at the top.
+    -- Fires regardless of the long-press reveal being up, so "press, see the
+    -- card, flick it in" is one continuous gesture.
+    if pendingPress and love.mouse.isDown(1)
+       and game.state == C.STATE_PLAYING then
+        local towardCentre = pendingPress.fromNorth and (y - pendingPress.y0)
+                                                     or (pendingPress.y0 - y)
+        if towardCentre > 55 then
+            local pp = pendingPress
+            pendingPress = nil
+            magnifyCard  = nil
+            local cp = game.currentPlayer
+            if cp and isHumanTurnFor(cp) then
+                -- humanPlay validates legality + that the card is cp's
+                game:humanPlay(pp.h.card)
+                southSel, northSel = nil, nil
+                southHov = nil
+            end
+            return
+        end
     end
 
     southHov = nil
@@ -314,7 +349,8 @@ end
 
 function love.keypressed(key)
     if key == "escape" then
-        -- Layered dismissal: magnifier → options popover → screen
+        -- Layered dismissal: dialog → magnifier → options popover → screen
+        if setupState.confirmSpectator then setupState.confirmSpectator = false return end
         if magnifyCard then magnifyCard = nil pendingPress = nil return end
         if gameOptsOpen then gameOptsOpen = false return end
         if game.state == C.STATE_MENU then
@@ -358,15 +394,33 @@ end
 
 function onMainMenuClick(x, y)
     local h = hitTest(mainMenuHits, x, y)
-    if not h then return end
+    if not h then
+        -- Click-away from the confirm dialog = "No"
+        setupState.confirmSpectator = false
+        return
+    end
     if h.type == "newgame" then
         game.sessionScore = {0, 0}
         game.matchBoard = 1
         setupState.matchMode = setupState.matchMode or "single"
         game.state = C.STATE_NEWGAME
-        
-    elseif h.type == "options" then
-        -- Not implemented yet
+
+    elseif h.type == "mode" then
+        if setupState.autoSouth then
+            -- Back to human: no confirmation needed
+            setupState.autoSouth = false
+        else
+            -- Switching to spectator: confirm first (touch mis-tap guard)
+            setupState.confirmSpectator = true
+        end
+
+    elseif h.type == "spec_yes" then
+        setupState.autoSouth = true
+        setupState.confirmSpectator = false
+
+    elseif h.type == "spec_no" then
+        setupState.confirmSpectator = false
+
     elseif h.type == "quit" then
         love.event.quit()
     end
@@ -396,9 +450,6 @@ function onSetupClick(x, y)
 
     elseif h.type == "match_toggle" then
         setupState.matchMode = setupState.matchMode == "7board" and "single" or "7board"
-
-    elseif h.type == "autosouth" then
-        setupState.autoSouth = not setupState.autoSouth
 
     elseif h.type == "introanim" then
         setupState.introAnim = not setupState.introAnim
@@ -498,20 +549,11 @@ end
 
 -- ── Card play ─────────────────────────────────────────────────────────────
 -- Press/release pair. A press queues the card; a quick release on the same
--- card plays it; holding LONGPRESS_TIME instead pops up the magnifier (and
--- the release then closes it without playing — so peeking is always safe).
-
-local function isHumanTurnFor(p)
-    if game.declaringSide == "NS" then
-        if game.declarer == C.SOUTH then
-            return p == C.SOUTH or p == game.dummy
-        else
-            return false
-        end
-    else
-        return p == C.SOUTH
-    end
-end
+-- card plays it; holding LONGPRESS_TIME instead reveals the card in place
+-- (release closes it without playing — peeking is always safe); pressing
+-- and swiping towards the table centre plays it (touch gesture).
+-- (isHumanTurnFor lives near the top of the input section, because the
+-- swipe handler in love.mousemoved needs it too.)
 
 function onPlayPress(x, y)
     -- Options UI sits above the table: check it first
@@ -532,14 +574,18 @@ function onPlayPress(x, y)
         return
     end
 
-    -- Face-up card press → queue for click-play or long-press magnify.
-    -- South is always face-up; North joins when it's the dummy.
-    local h = hitTest(southHits, x, y)
+    -- Face-up card press → queue for click-play, long-press reveal, or
+    -- swipe-to-play. South is always face-up; North joins when it's dummy.
+    local h, fromNorth = hitTest(southHits, x, y), false
     if not h and game.dummy == C.NORTH then
         h = hitTest(northHits, x, y)
+        fromNorth = h and true or false
     end
     if h then
-        pendingPress = {h = h, t0 = love.timer.getTime()}
+        pendingPress = {
+            h = h, t0 = love.timer.getTime(),
+            x0 = x, y0 = y, fromNorth = fromNorth,
+        }
     end
 end
 
