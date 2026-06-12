@@ -33,6 +33,21 @@ local northSel, northHov = nil, nil
 -- in the grid but not yet confirmed; nil means nothing selected.
 local selectedBid = nil
 
+-- In-game options popover (card-size slider) + interaction state
+local gameOptsOpen = false
+local gameOptsHits = {}
+
+-- Card-size slider drag: holds the active "cardslider" hit (with its track
+-- geometry) while the mouse button is down on it, in any screen.
+local sliderDrag = nil
+
+-- Long-press magnifier: pendingPress is set on mouse-down over a face-up
+-- card; if the button is held LONGPRESS_TIME the card pops up enlarged.
+-- A short press-and-release is a normal click (plays the card on release).
+local pendingPress = nil      -- {h = hit, t0 = time}
+local magnifyCard  = nil
+local LONGPRESS_TIME = 0.40
+
 -- ── Helpers ────────────────────────────────────────────────────────────────
 
 local function hitTest(hits, x, y)
@@ -63,7 +78,11 @@ local function dealFromSetup()
     applySetupDifficulty()
     southSel, southHov = nil, nil
     northSel, northHov = nil, nil
-    selectedBid = nil
+    selectedBid  = nil
+    pendingPress = nil
+    magnifyCard  = nil
+    gameOptsOpen = false
+    sliderDrag   = nil
     -- Apply settings to the global subsystems
     Anim.enabled = setupState.introAnim and true or false
     SND.setEnabled(setupState.soundOn and true or false)
@@ -111,7 +130,7 @@ function love.load()
         introAnim = true,    -- deal animation at start of hand
         soundOn   = true,    -- master sound toggle
         backTheme = 1,       -- 1..9 (rotates through card-back PNGs)
-        cardSize  = C.CARD_SIZE_DEFAULT,   -- 1..6 (Small..Biggest); see constants
+        cardW     = C.CARD_W_DEFAULT,      -- continuous card width (slider)
         -- Table mood (V2): when weatherOn is true the board re-themes itself
         -- by wall-clock time; otherwise it sticks to the player-chosen moodId.
         weatherOn = true,
@@ -123,7 +142,7 @@ function love.load()
         },
     }
     R.setMood(setupState)
-    R.setCardScale(setupState.cardSize)
+    R.setCardScale(setupState.cardW)
     game.state = C.STATE_MENU
 end
 
@@ -174,6 +193,13 @@ function love.update(dt)
         game:update(dt)
     end
     R.update(dt)      -- drives confetti / future animation particles
+
+    -- Long-press: holding a face-up card for LONGPRESS_TIME pops it up huge
+    if pendingPress and not magnifyCard then
+        if love.timer.getTime() - pendingPress.t0 >= LONGPRESS_TIME then
+            magnifyCard = pendingPress.h.card
+        end
+    end
 end
 
 function love.draw()
@@ -197,6 +223,8 @@ function love.draw()
         or game.state == C.STATE_TRICK_END then
         southHits, northHits = R.drawGame(
             game, southSel, southHov, northSel, northHov)
+        -- In-game options trigger + popover (card-size slider, live)
+        gameOptsHits = R.drawGameOptions(gameOptsOpen, mx, my)
 
     elseif game.state == C.STATE_RESULT then
         resultHits = R.drawResult(game, setupState, mx, my)
@@ -208,13 +236,34 @@ function love.draw()
     -- (Vignette now drawn inside each screen's backdrop, BEHIND the cards, so
     -- the background never sits on top of a card.)
 
+    -- Long-press magnifier floats above absolutely everything
+    if magnifyCard then
+        R.drawMagnifier(magnifyCard)
+    end
+
     V.drawEnd()
 end
 
 -- ── Input ──────────────────────────────────────────────────────────────────
 
+-- Map a drag/click x-position on a card-size slider back to a width and
+-- apply it immediately (this is what makes the preview live).
+local function applyCardSlider(h, x)
+    local v = (x - h.trackX) / h.trackW
+    if v < 0 then v = 0 elseif v > 1 then v = 1 end
+    setupState.cardW = C.CARD_W_MIN + v * (C.CARD_W_MAX - C.CARD_W_MIN)
+    R.setCardScale(setupState.cardW)
+end
+
 function love.mousemoved(x, y)
     x, y = V.toVirtual(x, y)
+
+    -- Live slider drag (setup screen or in-game options)
+    if sliderDrag and love.mouse.isDown(1) then
+        applyCardSlider(sliderDrag, x)
+        return
+    end
+
     southHov = nil
     if game.state == C.STATE_PLAYING then
         local cp = game.currentPlayer
@@ -234,8 +283,23 @@ function love.mousepressed(x, y, btn)
     elseif game.state == C.STATE_DEALING   then game.state = C.STATE_AUCTION
                                                 Anim.active = false
     elseif game.state == C.STATE_AUCTION   then onAuctionClick(x, y)
-    elseif game.state == C.STATE_PLAYING   then onPlayClick(x, y)
+    elseif game.state == C.STATE_PLAYING
+        or game.state == C.STATE_TRICK_END then onPlayPress(x, y)
     elseif game.state == C.STATE_RESULT or game.state == "match_summary" then onResultClick(x, y)
+    end
+end
+
+function love.mousereleased(x, y, btn)
+    if btn ~= 1 then return end
+    x, y = V.toVirtual(x, y)
+
+    sliderDrag = nil
+
+    if game.state == C.STATE_PLAYING or game.state == C.STATE_TRICK_END then
+        onPlayRelease(x, y)
+    else
+        pendingPress = nil
+        magnifyCard  = nil
     end
 end
 
@@ -250,6 +314,9 @@ end
 
 function love.keypressed(key)
     if key == "escape" then
+        -- Layered dismissal: magnifier → options popover → screen
+        if magnifyCard then magnifyCard = nil pendingPress = nil return end
+        if gameOptsOpen then gameOptsOpen = false return end
         if game.state == C.STATE_MENU then
             love.event.quit()
         elseif game.state == C.STATE_NEWGAME then
@@ -353,15 +420,9 @@ function onSetupClick(x, y)
             R.setBackTheme(setupState.backTheme)
         end
 
-    elseif h.type == "cardsizeprev" then
-        local n = #C.CARD_SIZE_W
-        setupState.cardSize = ((setupState.cardSize - 2) % n) + 1
-        R.setCardScale(setupState.cardSize)
-
-    elseif h.type == "cardsizenext" then
-        local n = #C.CARD_SIZE_W
-        setupState.cardSize = (setupState.cardSize % n) + 1
-        R.setCardScale(setupState.cardSize)
+    elseif h.type == "cardslider" then
+        sliderDrag = h
+        applyCardSlider(h, x)
 
     elseif h.type == "weather" then
         setupState.weatherOn = not setupState.weatherOn
@@ -436,27 +497,72 @@ function onAuctionClick(x, y)
 end
 
 -- ── Card play ─────────────────────────────────────────────────────────────
+-- Press/release pair. A press queues the card; a quick release on the same
+-- card plays it; holding LONGPRESS_TIME instead pops up the magnifier (and
+-- the release then closes it without playing — so peeking is always safe).
 
-function onPlayClick(x, y)
-    local cp = game.currentPlayer
-    if not cp then return end
-
-    local function isHumanTurn(p)
-        if game.declaringSide == "NS" then
-            if game.declarer == C.SOUTH then
-                return p == C.SOUTH or p == game.dummy
-            else
-                return false
-            end
+local function isHumanTurnFor(p)
+    if game.declaringSide == "NS" then
+        if game.declarer == C.SOUTH then
+            return p == C.SOUTH or p == game.dummy
         else
-            return p == C.SOUTH
+            return false
         end
+    else
+        return p == C.SOUTH
+    end
+end
+
+function onPlayPress(x, y)
+    -- Options UI sits above the table: check it first
+    local oh = hitTest(gameOptsHits, x, y)
+    if oh then
+        if oh.type == "optsgear" then
+            gameOptsOpen = not gameOptsOpen
+        elseif oh.type == "cardslider" then
+            sliderDrag = oh
+            applyCardSlider(oh, x)
+        end
+        return
+    end
+    if gameOptsOpen then
+        -- Click-away closes the popover and consumes the press, so opening
+        -- options can never accidentally play a card.
+        gameOptsOpen = false
+        return
     end
 
-    if not isHumanTurn(cp) then return end
+    -- Face-up card press → queue for click-play or long-press magnify.
+    -- South is always face-up; North joins when it's the dummy.
+    local h = hitTest(southHits, x, y)
+    if not h and game.dummy == C.NORTH then
+        h = hitTest(northHits, x, y)
+    end
+    if h then
+        pendingPress = {h = h, t0 = love.timer.getTime()}
+    end
+end
+
+function onPlayRelease(x, y)
+    -- Closing the magnifier never plays the card
+    if magnifyCard then
+        magnifyCard  = nil
+        pendingPress = nil
+        return
+    end
+    if not pendingPress then return end
+    local pressed = pendingPress.h
+    pendingPress  = nil
+
+    if game.state ~= C.STATE_PLAYING then return end
+    local cp = game.currentPlayer
+    if not cp or not isHumanTurnFor(cp) then return end
+
     local hits = (cp == C.SOUTH) and southHits or northHits
     local h    = hitTest(hits, x, y)
     if not h then return end
+    -- Only play if the release lands on the card that was pressed
+    if h.card ~= pressed.card then return end
 
     game:humanPlay(h.card)
     southSel, northSel = nil, nil

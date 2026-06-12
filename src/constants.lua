@@ -107,4 +107,12 @@ C.CARD_SIZE_NAMES   = {"Small", "Medium", "Regular", "Big", "Bigger", "Biggest"}
 C.CARD_SIZE_W       = {72, 84, 96, 108, 120, 128}
 C.CARD_SIZE_DEFAULT = 3   -- "Regular" (matches C.CARD_W above)
 
+-- Continuous card-size slider range (V2). The slider replaces the six-step
+-- cycler: any width in [MIN, MAX] is valid; layout maths in R.setCardScale
+-- guarantee no hand/trick collisions across the whole range. Default sits
+-- above the old "Regular" because real players found the cards too small.
+C.CARD_W_MIN     = 72
+C.CARD_W_MAX     = 128
+C.CARD_W_DEFAULT = 108
+
 return C

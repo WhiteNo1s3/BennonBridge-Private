@@ -661,11 +661,55 @@ local trickPos = {
     [C.WEST]  = function() return C.SW/2 - TRICK_OFFSET - CW, C.SH/2 - CH/2 end,
 }
 
-local function drawTrick(trick)
-    for _, entry in ipairs(trick) do
-        local x, y = trickPos[entry.player]()
-        drawCardFace(x, y, entry.card, nil, false)
+-- Play-to-centre flight: when a card first appears in the trick we animate it
+-- from its owner's hand position to its trick slot instead of teleporting.
+-- E/W cards also un-rotate (±90° → 0) during the flight, which reads as the
+-- player "turning the card over to the table".
+local playFlight    = {}   -- [key] = {t, fx, fy, fa}
+local prevTrickKeys = {}
+local FLIGHT_TIME   = 0.22
+
+local function handAnchor(player)
+    if     player == C.NORTH then return C.SW/2,        18 + CH/2,        0
+    elseif player == C.SOUTH then return C.SW/2,        C.SH - 18 - CH/2, 0
+    elseif player == C.EAST  then return C.SW - SIDE_X, C.SH/2,           math.pi/2
+    else                          return SIDE_X,        C.SH/2,          -math.pi/2
     end
+end
+
+local function drawTrick(trick)
+    local dt   = love.timer.getDelta() or 0
+    local seen = {}
+    for _, entry in ipairs(trick) do
+        local key = entry.player .. ":" .. entry.card.rank .. ":" .. entry.card.suit
+        seen[key] = true
+        if not prevTrickKeys[key] and not playFlight[key] then
+            local fx, fy, fa = handAnchor(entry.player)
+            playFlight[key] = {t = 0, fx = fx, fy = fy, fa = fa}
+        end
+
+        local x, y = trickPos[entry.player]()
+        local f = playFlight[key]
+        if f and f.t < 1 then
+            f.t = math.min(1, f.t + dt / FLIGHT_TIME)
+            local e  = easeOutCubic(f.t)
+            local cx = f.fx + ((x + CW/2) - f.fx) * e
+            local cy = f.fy + ((y + CH/2) - f.fy) * e
+            local a  = f.fa * (1 - e)
+            love.graphics.push()
+            love.graphics.translate(cx, cy)
+            love.graphics.rotate(a)
+            drawCardFace(-CW/2, -CH/2, entry.card, nil, false)
+            love.graphics.pop()
+        else
+            drawCardFace(x, y, entry.card, nil, false)
+        end
+    end
+    -- Forget flights for cards no longer on the table (trick swept / new deal)
+    for k in pairs(playFlight) do
+        if not seen[k] then playFlight[k] = nil end
+    end
+    prevTrickKeys = seen
 end
 
 -- ── Runtime card scaling ────────────────────────────────────────────────────
@@ -675,14 +719,23 @@ end
 -- filter and just draw at a new size). All seat badges, side-hand insets and
 -- the trick spread follow from CW/CH, so this stays consistent with the fix
 -- that keeps decorations off the cards.
-function R.setCardScale(sizeIdx)
-    local widths = C.CARD_SIZE_W
-    sizeIdx = math.max(1, math.min(#widths, math.floor(sizeIdx or C.CARD_SIZE_DEFAULT)))
-    local w = widths[sizeIdx]
-    CW = w
+function R.setCardScale(size)
+    -- Accept either a legacy 1..6 step index (old saves / old callers) or a
+    -- continuous card width in pixels from the V2 slider.
+    local w
+    if size and size <= #C.CARD_SIZE_W then
+        w = C.CARD_SIZE_W[math.max(1, math.floor(size + 0.5))]
+    else
+        w = math.max(C.CARD_W_MIN, math.min(C.CARD_W_MAX,
+                size or C.CARD_W_DEFAULT))
+    end
+    CW = math.floor(w + 0.5)
     CH = math.floor(w * (134 / 96) + 0.5)
     CR = math.max(4,  math.floor(w * (8  / 96) + 0.5))
-    OV = math.max(12, math.floor(w * (30 / 96) + 0.5))
+    -- Fan overlap: a touch wider than V1 (32/96 vs 30/96) so ranks/suits peek
+    -- out more clearly. NOT user-tunable — spacing stays proportional to card
+    -- size so fans can never collide the table layout.
+    OV = math.max(12, math.floor(w * (32 / 96) + 0.5))
     SIDE_X     = CH / 2 + 8
     SIDE_BADGE = CH + 30
     -- Centre-trick offset: keep the original spacing where there's room, but
@@ -691,7 +744,60 @@ function R.setCardScale(sizeIdx)
     -- we need OFFSET < 382 - 2*CH (leaving a 6px gap). Symmetric for South.
     TRICK_OFFSET = math.floor(math.min(0.58 * CH, 382 - 2 * CH - 6))
     if TRICK_OFFSET < 10 then TRICK_OFFSET = 10 end
-    R.CARD_SIZE = sizeIdx
+    R.CARD_W = CW
+end
+
+-- Current card-layout metrics, for systems that mirror our layout maths
+-- (the deal animation computes per-card landing spots with these).
+function R.metrics()
+    return CW, CH, OV, SIDE_X
+end
+
+-- ── Card-size slider ────────────────────────────────────────────────────────
+-- Shared by the setup screen and the in-game options popover. Draws a label,
+-- a track with a filled portion and a knob, and pushes a "cardslider" hit
+-- carrying the track geometry so input code can map a drag-x back to a width.
+-- The range is hard-clamped to C.CARD_W_MIN..MAX, which setCardScale keeps
+-- collision-free — the user can never push cards into the trick area.
+local function drawCardSlider(x, y, trackW, mx, my, hits)
+    setColor(PAL.text_dim)
+    love.graphics.setFont(fonts.tiny)
+    love.graphics.print("Card size", x, y - 2)
+    love.graphics.print(tostring(CW) .. " px", x + trackW - 36, y - 2)
+
+    local ty = y + 20            -- track centreline
+    setColor(0, 0, 0, 0.45)
+    love.graphics.rectangle("fill", x, ty - 3, trackW, 6, 3)
+    local v01 = (CW - C.CARD_W_MIN) / (C.CARD_W_MAX - C.CARD_W_MIN)
+    setColor(PAL.btn_green)
+    love.graphics.rectangle("fill", x, ty - 3, trackW * v01, 6, 3)
+
+    -- Knob with eased hover growth (same machinery as the buttons)
+    local kx  = x + trackW * v01
+    local key = "cardslider@" .. math.floor(x) .. "," .. math.floor(y)
+    hoverSeen[key] = true
+    local over = mx >= x - 10 and mx <= x + trackW + 10
+             and my >= ty - 16 and my <= ty + 16
+    local prev = hoverProgress[key] or 0
+    local kdt  = love.timer.getDelta() or 0
+    local raw  = prev + ((over and 1 or 0) - prev) * math.min(1, kdt * 12)
+    hoverProgress[key] = raw
+    local p = easeOutCubic(raw)
+
+    setColor(0, 0, 0, 0.35)
+    love.graphics.circle("fill", kx + 1, ty + 2, 9 + 2 * p)
+    setColor(lerpColor({1, 1, 1}, PAL.yellow, p))
+    love.graphics.circle("fill", kx, ty, 9 + 2 * p)
+    setColor(0.2, 0.2, 0.2)
+    love.graphics.setLineWidth(1)
+    love.graphics.circle("line", kx, ty, 9 + 2 * p)
+    setColor(1, 1, 1, 1)
+
+    hits[#hits+1] = {
+        type = "cardslider",
+        x = x - 10, y = ty - 16, w = trackW + 20, h = 32,
+        trackX = x, trackW = trackW,
+    }
 end
 
 -- ── Panels ─────────────────────────────────────────────────────────────────
@@ -1591,6 +1697,64 @@ function R.drawGame(game, southSel, southHov, northSel, northHov)
     return sHits, nHits, eHits, wHits
 end
 
+-- ── Long-press magnifier ────────────────────────────────────────────────────
+-- Shows one card huge in the middle of the table (crowded fans stay readable
+-- for anyone who can't make out the small corner indices). Draw LAST so it
+-- floats above everything.
+function R.drawMagnifier(card)
+    setColor(0, 0, 0, 0.55)
+    love.graphics.rectangle("fill", 0, 0, C.SW, C.SH)
+
+    local s  = math.min(3.2, (C.SH * 0.78) / CH)
+    local mw, mh = CW * s, CH * s
+    local cx, cy = C.SW/2, C.SH/2 - 14
+
+    love.graphics.push()
+    love.graphics.translate(cx - mw/2, cy - mh/2)
+    love.graphics.scale(s, s)
+    drawCardFace(0, 0, card, nil, false)
+    love.graphics.pop()
+
+    setColor(PAL.text_dim)
+    centredText(fonts.small, "Release to close", cx, cy + mh/2 + 24)
+end
+
+-- ── In-game options popover ────────────────────────────────────────────────
+-- A small "Options" trigger in the top-left corner of the table (clear of the
+-- West fan) opening a panel with the card-size slider. The table re-lays-out
+-- live while the knob is dragged, so the player tunes size in full context.
+function R.drawGameOptions(optsOpen, mx, my)
+    local hits = {}
+
+    local _, gx, gy, gw, gh = button(optsOpen and "Close" or "Options",
+        15, 12, 96, 34, mx, my, PAL.btn_blue, PAL.btn_hover)
+    hits[#hits+1] = {type = "optsgear", x = gx, y = gy, w = gw, h = gh}
+
+    if optsOpen then
+        local px, py, pw, ph = 15, 56, 330, 102
+        setColor(0, 0, 0, 0.4)
+        love.graphics.rectangle("fill", px + 3, py + 4, pw, ph, 10)
+        setColor(0x2C/255, 0x30/255, 0x3A/255, 0.97)
+        love.graphics.rectangle("fill", px, py, pw, ph, 10)
+        setColor(0x3A/255, 0x40/255, 0x4A/255)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", px, py, pw, ph, 10)
+        love.graphics.setLineWidth(1)
+        -- Panel hit consumes clicks so they can't fall through to cards.
+        -- (Pushed before the slider hit — hitTest scans in reverse, so the
+        -- slider still wins inside its own strip.)
+        hits[#hits+1] = {type = "optspanel", x = px, y = py, w = pw, h = ph}
+
+        drawCardSlider(px + 16, py + 14, pw - 32, mx, my, hits)
+
+        setColor(PAL.text_dim)
+        love.graphics.setFont(fonts.tiny)
+        love.graphics.print("Drag the knob — the table resizes live.",
+            px + 16, py + ph - 26)
+    end
+    return hits
+end
+
 -- ── Bidding screen ─────────────────────────────────────────────────────────
 -- Returns {suitBtns=[{suit,x,y,w,h}], trickBtns=[{tricks,x,y,w,h}], autoBtns=[]}
 function R.drawBidding(game, selSuit, selTricks, mx, my)
@@ -2315,24 +2479,23 @@ function R.drawNewGameSetup(setupState, mx, my)
         hits[#hits+1] = {type="moodnext", x=mnx, y=mny, w=mnw, h=mnh}
     end
 
-    -- ── Card size cycler (right of the weather / board row) ──
-    -- Scales the cards relative to the table. The table itself always responds
-    -- to the screen (letterbox viewport); this is the player's size preference.
+    -- ── Card size slider (right of the weather / board row) ──
+    -- Continuous slider replacing the old six-step cycler. The range is
+    -- clamped so no value can collide hands with the trick area, and fan
+    -- spacing scales proportionally — the player only chooses SIZE, never
+    -- raw spacing. A true-size preview pair renders at the bottom-right so
+    -- the change is visible live, before dealing.
     do
         local czX = C.SW/2 + 180
+        drawCardSlider(czX, setY2 - 6, 200, mx, my, hits)
+
+        local pvX = C.SW - CW * 2 - 70
+        local pvY = C.SH - CH - 30
         setColor(PAL.text_dim)
         love.graphics.setFont(fonts.tiny)
-        love.graphics.print("Cards:", czX, setY2 + 10)
-        local _, cpx, cpy, cpw, cph = button("<",
-            czX + 48, setY2, 28, 32, mx, my, PAL.btn_blue, PAL.btn_hover)
-        hits[#hits+1] = {type="cardsizeprev", x=cpx, y=cpy, w=cpw, h=cph}
-        setColor(PAL.white)
-        centredText(fonts.med,
-            C.CARD_SIZE_NAMES[setupState.cardSize or C.CARD_SIZE_DEFAULT],
-            czX + 130, setY2 + 16)
-        local _, cnx, cny, cnw, cnh = button(">",
-            czX + 184, setY2, 28, 32, mx, my, PAL.btn_blue, PAL.btn_hover)
-        hits[#hits+1] = {type="cardsizenext", x=cnx, y=cny, w=cnw, h=cnh}
+        love.graphics.print("Live size preview:", pvX, pvY - 18)
+        drawCardFace(pvX, pvY, {rank = 14, suit = C.SPADES}, nil, false)
+        drawCardBack(pvX + CW + 14, pvY)
     end
 
     -- ── Deal button + Back ──

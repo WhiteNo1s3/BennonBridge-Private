@@ -35,10 +35,13 @@ A.DECK_Y = C.SH / 2
 
 -- Destination positions for each card in a horizontal/vertical fan.
 -- These mirror the placement logic in render.drawHorizHand /drawVertHand so
--- the cards land exactly where they'll sit during play.
+-- the cards land exactly where they'll sit during play. Refreshed from
+-- render's live metrics at the start of every deal, because the card-size
+-- slider can change them at any time.
 local CARD_W       = C.CARD_W
 local CARD_H       = C.CARD_H
 local OVERLAP      = C.CARD_OVERLAP
+local SIDE_X       = C.CARD_H / 2 + 8
 
 local function horizFanXY(baseCX, baseCY, slot, total)
     -- slot is 1..total. mirrors drawHorizHand layout.
@@ -69,6 +72,13 @@ function A.startDeal(hands, dealer)
     A.elapsed       = 0
     A.cards         = {}
 
+    -- Pull current card metrics from the renderer (lazy require: render also
+    -- lazy-requires this module, so neither top-level requires the other).
+    local R = require("src.render")
+    if R.metrics then
+        CARD_W, CARD_H, OVERLAP, SIDE_X = R.metrics()
+    end
+
     -- Build the destination for every card. Then build the per-card animation
     -- entries in deal order: dealer's LHO gets nothing first; we deal from
     -- dealer's LHO clockwise. Actually in bridge the dealer deals one card at
@@ -79,10 +89,10 @@ function A.startDeal(hands, dealer)
 
     -- Player position centers + orientation (matches render)
     local posOf = {
-        [C.NORTH] = {cx = C.SW/2,   cy = 18 + CARD_H/2,         angle = 0,         horiz = true},
-        [C.SOUTH] = {cx = C.SW/2,   cy = C.SH - 18 - CARD_H/2,  angle = 0,         horiz = true},
-        [C.EAST]  = {cx = C.SW-55,  cy = C.SH/2,                angle = math.pi/2, horiz = false},
-        [C.WEST]  = {cx = 55,       cy = C.SH/2,                angle =-math.pi/2, horiz = false},
+        [C.NORTH] = {cx = C.SW/2,        cy = 18 + CARD_H/2,         angle = 0,         horiz = true},
+        [C.SOUTH] = {cx = C.SW/2,        cy = C.SH - 18 - CARD_H/2,  angle = 0,         horiz = true},
+        [C.EAST]  = {cx = C.SW - SIDE_X, cy = C.SH/2,                angle = math.pi/2, horiz = false},
+        [C.WEST]  = {cx = SIDE_X,        cy = C.SH/2,                angle =-math.pi/2, horiz = false},
     }
 
     -- Issue cards one at a time, advancing the player after each
