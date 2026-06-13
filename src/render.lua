@@ -570,11 +570,55 @@ local OV = C.CARD_OVERLAP
 local SIDE_X     = CH/2 + 8     -- West baseCX (East = SW - SIDE_X)
 local SIDE_BADGE = CH + 30      -- West E/W badge x (East = SW - SIDE_BADGE)
 
+-- ── Long-press reveal state ─────────────────────────────────────────────────
+-- The held card cross-fades: quick fade-out in its fan slot, quick fade-in at
+-- a lifted spot clear of the neighbours (and the reverse on release). No
+-- slide, no backdrop dim — just a fast blink-up. Per-pixel alpha requires the
+-- card pre-rendered to a small canvas.
+local revealState = nil      -- {card, p (0..1), target (0|1)}
+local revealCanvas, revealCanvasW, revealCanvasH
+
+local function cardToCanvas(card)
+    if not revealCanvas or revealCanvasW ~= CW or revealCanvasH ~= CH then
+        revealCanvas  = love.graphics.newCanvas(CW, CH)
+        revealCanvasW, revealCanvasH = CW, CH
+    end
+    love.graphics.push("all")
+    love.graphics.setCanvas({revealCanvas, stencil = true})
+    love.graphics.clear(0, 0, 0, 0)
+    love.graphics.origin()
+    drawCardFace(0, 0, card, nil, false)
+    love.graphics.setCanvas()
+    love.graphics.pop()
+    return revealCanvas
+end
+
+-- Called once per frame from drawGame with the currently held card (or nil).
+local function updateRevealState(revealCard)
+    local dt = love.timer.getDelta() or 0
+    if revealCard then
+        if not revealState or revealState.card.rank ~= revealCard.rank
+                           or revealState.card.suit ~= revealCard.suit then
+            revealState = {card = revealCard, p = 0}
+        end
+        revealState.target = 1
+    elseif revealState then
+        revealState.target = 0
+    end
+    if revealState then
+        -- Very fast: ~90% of the fade inside a tenth of a second
+        local k = math.min(1, dt * 24)
+        revealState.p = revealState.p + (revealState.target - revealState.p) * k
+        if revealState.target == 0 and revealState.p < 0.03 then
+            revealState = nil
+        end
+    end
+end
+
 -- Horizontal fan, face-up (South or North).
--- `revealCard` (optional): that card is pulled out of the fan and drawn LAST,
--- lifted clear of its neighbours, so the whole face is readable in place —
--- the long-press "peek" for crowded hands.
-local function drawHorizHand(hand, baseX, baseY, faceUp, playableSet, selectedIdx, hoverIdx, flip, revealCard)
+-- A card matching revealState cross-fades out of its fan slot and in at a
+-- lifted position clear of the neighbours (the long-press "peek").
+local function drawHorizHand(hand, baseX, baseY, faceUp, playableSet, selectedIdx, hoverIdx, flip)
     local n = #hand
     if n == 0 then return {} end
     local totalW = (n-1)*OV + CW
@@ -610,15 +654,16 @@ local function drawHorizHand(hand, baseX, baseY, faceUp, playableSet, selectedId
         local liftSel = flip and 12 or -14
         local dy = liftHov * hp + liftSel * sp
 
-        local isReveal = revealCard and faceUp
-            and card.rank == revealCard.rank and card.suit == revealCard.suit
+        local isReveal = revealState and faceUp
+            and card.rank == revealState.card.rank
+            and card.suit == revealState.card.suit
 
         local hl = nil
         if selectedIdx == i then hl = "selected"
         elseif playableSet and playableSet[i] then hl = "playable" end
 
         if isReveal then
-            revealX = x        -- deferred: drawn above the neighbours below
+            revealX = x        -- deferred: cross-fade drawn below
         elseif faceUp then
             drawCardFace(x, baseY + dy, card, hl, false)
         else
@@ -627,22 +672,27 @@ local function drawHorizHand(hand, baseX, baseY, faceUp, playableSet, selectedId
         hits[#hits+1] = {card=card, x=x, y=baseY+dy, w=CW, h=CH, idx=i}
     end
 
-    -- Long-press reveal: ease the card out of the fan, far enough that no
-    -- neighbour covers it (one full overlap step is hidden, so OV..CW of the
-    -- face is normally invisible). Slides ~62% of a card height clear.
-    if revealX then
-        local rk = "reveal:" .. revealCard.rank .. ":" .. revealCard.suit
-        hoverSeen[rk] = true
-        local prev = hoverProgress[rk] or 0
-        local raw  = prev + (1 - prev) * math.min(1, dt * 10)
-        hoverProgress[rk] = raw
-        local p = easeOutCubic(raw)
+    -- Long-press reveal cross-fade: the card blinks out of its fan slot and
+    -- blinks in at a fixed lifted spot clear of the neighbours (towards the
+    -- table centre so it can't leave the screen). p drives both alphas:
+    -- first half fades the fan copy out, second half fades the lifted copy in.
+    if revealX and revealState then
+        local p       = revealState.p
+        local fanA    = 1 - math.min(1, p * 2)        -- 1 → 0 in first half
+        local liftA   = math.max(0, p * 2 - 1)        -- 0 → 1 in second half
+        local dir     = (baseY < C.SH/2) and 1 or -1
+        local liftY   = baseY + dir * (CH * 0.62)
+        local cv      = cardToCanvas(revealState.card)
 
-        -- Lift towards the table centre: top hand slides down, bottom slides
-        -- up — never off-screen, always clear of the fan.
-        local dir  = (baseY < C.SH/2) and 1 or -1
-        local lift = dir * (CH * 0.62) * p
-        drawCardFace(revealX, baseY + lift, revealCard, "selected", false)
+        if fanA > 0.01 then
+            love.graphics.setColor(1, 1, 1, fanA)
+            love.graphics.draw(cv, revealX, baseY)
+        end
+        if liftA > 0.01 then
+            love.graphics.setColor(1, 1, 1, liftA)
+            love.graphics.draw(cv, revealX, liftY)
+        end
+        love.graphics.setColor(1, 1, 1, 1)
     end
 
     return hits
@@ -1682,12 +1732,14 @@ function R.drawGame(game, southSel, southHov, northSel, northHov, revealCard)
     local eFace = (game.dummy == C.EAST)  or false
     local wFace = (game.dummy == C.WEST)  or false
 
-    -- Draw hands (revealCard is matched by identity, so passing it to both
-    -- horizontal hands is safe — only the owner lifts it)
+    -- Advance the long-press reveal cross-fade (matched by card identity, so
+    -- whichever hand holds the card draws it)
+    updateRevealState(revealCard)
+
     local nHits = drawHorizHand(game.hands[C.NORTH], C.SW/2, 18,
-                    nFace, nPlayable, northSel, northHov, false, revealCard)
+                    nFace, nPlayable, northSel, northHov, false)
     local sHits = drawHorizHand(game.hands[C.SOUTH], C.SW/2, C.SH - CH - 18,
-                    sFace, sPlayable, southSel, southHov, false, revealCard)
+                    sFace, sPlayable, southSel, southHov, false)
     local eHits = drawVertHand(game.hands[C.EAST], C.SW - SIDE_X, C.SH/2,
                     math.pi/2, eFace, ePlayable)
     local wHits = drawVertHand(game.hands[C.WEST], SIDE_X, C.SH/2,
