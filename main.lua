@@ -194,7 +194,7 @@ function love.update(dt)
     end
     R.update(dt)      -- drives confetti / future animation particles
 
-    -- Long-press: holding a face-up card for LONGPRESS_TIME pops it up huge
+    -- Long-press: holding a face-up card for LONGPRESS_TIME reveals it
     if pendingPress and not magnifyCard then
         if love.timer.getTime() - pendingPress.t0 >= LONGPRESS_TIME then
             magnifyCard = pendingPress.h.card
