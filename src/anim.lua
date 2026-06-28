@@ -29,6 +29,12 @@ local CARD_TIME    = 0.16     -- per-card flight time (linear interp)
 local CARD_DELAY   = 0.04     -- stagger between successive deals
 local SOUND_PITCH  = 2.6      -- speedy "tick" for each card
 
+-- Deal flourish (purely visual; cards still land EXACTLY on their slot).
+-- Both effects are 0 at t=0 and t=1, so the start pile and final fan are
+-- untouched — only the path between them gets nicer.
+local DEAL_ARC     = 28       -- px the card lifts at mid-flight (parabolic hop)
+local DEAL_SPIN    = 0.30     -- radians of extra twirl that eases out on landing
+
 -- Where the dealer pile sits before the deal
 A.DECK_X = C.SW / 2
 A.DECK_Y = C.SH / 2
@@ -166,7 +172,12 @@ function A.cardPos(i)
     local e = 1 - (1 - t) * (1 - t)
     local x = c.fromX + (c.toX - c.fromX) * e
     local y = c.fromY + (c.toY - c.fromY) * e
-    return x, y, c.angle, c.player
+    -- Parabolic hop: peaks at mid-flight, exactly 0 at the pile and the slot.
+    y = y - math.sin(t * math.pi) * DEAL_ARC
+    -- Twirl that eases out to the card's final angle; direction follows travel.
+    local dir = (c.toX >= c.fromX) and 1 or -1
+    local angle = c.angle + (1 - e) * DEAL_SPIN * dir
+    return x, y, angle, c.player
 end
 
 return A
