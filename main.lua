@@ -324,6 +324,10 @@ function love.mousepressed(x, y, btn)
     if btn ~= 1 then return end
     x, y = V.toVirtual(x, y)
 
+    -- Touch feedback: any button under this press pops visibly (phones have
+    -- no hover, and even the quickest tap must react).
+    R.pulseAt(x, y)
+
     if     game.state == C.STATE_MENU      then onMainMenuClick(x, y)
     elseif game.state == C.STATE_NEWGAME   then onSetupClick(x, y)
     elseif game.state == C.STATE_DEALING   then game.state = C.STATE_AUCTION

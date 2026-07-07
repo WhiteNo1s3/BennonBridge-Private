@@ -328,6 +328,34 @@ local function btnKey(label, x, y)
     return label .. "@" .. math.floor(x) .. "," .. math.floor(y)
 end
 
+-- Tap pulses: touch screens have no hover, so main.lua reports every press
+-- point here and any button under it plays a short "pop" (scale + brighten)
+-- regardless of how quick the tap was. Also fires on desktop clicks.
+local tapPulses = {}   -- {x, y, t0}
+local TAP_PULSE_TIME = 0.28
+
+function R.pulseAt(x, y)
+    tapPulses[#tapPulses + 1] = {x = x, y = y, t0 = love.timer.getTime()}
+    if #tapPulses > 6 then table.remove(tapPulses, 1) end
+end
+
+local function tapPulseFor(x, y, w, h)
+    local now, best = love.timer.getTime(), 0
+    for i = #tapPulses, 1, -1 do
+        local p = tapPulses[i]
+        local age = now - p.t0
+        if age > TAP_PULSE_TIME then
+            table.remove(tapPulses, i)
+        elseif p.x >= x and p.x <= x + w and p.y >= y and p.y <= y + h then
+            -- quick rise, smooth fall
+            local t = age / TAP_PULSE_TIME
+            local v = (t < 0.25) and (t / 0.25) or (1 - (t - 0.25) / 0.75)
+            if v > best then best = v end
+        end
+    end
+    return best
+end
+
 local function easeOutCubic(t)
     local u = 1 - t
     return 1 - u * u * u
@@ -369,13 +397,16 @@ local function button(label, x, y, w, h, mx, my, col, hcol, font)
     hoverProgress[pressKey] = pressRaw
     local pr = easeOutCubic(pressRaw)              -- 0..1
 
+    -- Tap pulse (touch feedback: fires even on the quickest tap)
+    local tp = tapPulseFor(x, y, w, h)
+
     -- Derived visual params --------------------------------------------------
     -- Press eats the hover lift (so it feels pushed back into the desk) and
-    -- shrinks scale very slightly.
+    -- shrinks scale very slightly. A tap pulse pops the button visibly.
     local lift    = -3 * p + 4 * pr               -- pixels (negative = up)
-    local scale   = 1 + 0.035 * p - 0.020 * pr    -- 1.0 → 1.035 → 1.015
+    local scale   = 1 + 0.035 * p - 0.020 * pr + 0.07 * tp
     local cx, cy  = x + w/2, y + h/2
-    local fillCol = lerpColor(col, hcol, p)
+    local fillCol = lerpColor(col, hcol, math.max(p, tp))
     -- Brighten fill a touch more at full hover for extra "pop"
     fillCol[1] = math.min(1, fillCol[1] + 0.04 * p)
     fillCol[2] = math.min(1, fillCol[2] + 0.04 * p)
@@ -426,9 +457,11 @@ local function button(label, x, y, w, h, mx, my, col, hcol, font)
         love.graphics.setLineWidth(1)
     end
 
-    -- Label (slight brightness boost on hover) ------------------------------
+    -- Label (slight brightness boost on hover). maxWidth clamps the text
+    -- INSIDE the button at every text-size setting — a label that escapes
+    -- its button is never acceptable.
     setColor(1, 1, 1, math.min(1, 0.92 + 0.08 * p))
-    centredText(font or fonts.med, label, cx, cy)
+    centredText(font or fonts.med, label, cx, cy, w - 14)
 
     love.graphics.pop()
     setColor(1, 1, 1, 1)
@@ -526,15 +559,17 @@ local function drawCardFace(x, y, card, highlight, dimmed)
     local img = cardImg[card.rank] and cardImg[card.rank][card.suit]
     if img then
         if dimmed then setColor(0.78, 0.78, 0.78) else setColor(1, 1, 1) end
-        -- Number cards and Aces carry a small transparent margin in their
-        -- source viewBox; expand a touch so the visible art reaches the card
-        -- edge. The stencil clips any overflow, so the silhouette stays exact.
-        local expand = (card.rank < 11 or card.rank == 14)
-        local tw = expand and CW * (250/240) or CW
-        local th = expand and CH * (350/340) or CH
-        local dx = x - (tw - CW) / 2
-        local dy = y - (th - CH) / 2
-        love.graphics.draw(img, dx, dy, 0, tw / img:getWidth(), th / img:getHeight())
+        -- Uniform "cover" mapping: scale the art so it covers the card
+        -- rectangle exactly, centred; the stencil clips the excess. The
+        -- source PNGs have slightly different sizes/margins per rank (aces
+        -- 270x392, numerics 280x392, courts 539x784) — cover normalises
+        -- them all, so an ace renders at EXACTLY the same visible size and
+        -- geometry as every other card.
+        local iw, ih = img:getWidth(), img:getHeight()
+        local k  = math.max((CW + 4) / iw, (CH + 4) / ih)   -- +4: eat margins
+        local dx = x + (CW - iw * k) / 2
+        local dy = y + (CH - ih * k) / 2
+        love.graphics.draw(img, dx, dy, 0, k, k)
     end
     endCard(x, y, dimmed)
 end
@@ -1314,34 +1349,65 @@ end
 -- On the phone a face-down opponent is a compass badge with their name, a
 -- live card count, and their role chip — thirteen hidden card backs carry
 -- no information and were costing the screen half its space.
-function drawSeatBadgePhone(game, p, cx, cy)
+function drawSeatBadgePhone(game, p, cx, cy, layout)
     local accent, active = seatAccent(game, p)
     local role, roleBg   = roleFor(game, p)
     local r = 24
     compassToken(cx, cy, r, p, accent, active)
-    -- Name plate under the token
+    -- "row" layout (North, where the trick cluster owns the space below):
+    -- mini fan to the LEFT of the token, name to the RIGHT — one slim strip
+    -- along the top edge that nothing can cover.
+    local row = (layout == "row")
     love.graphics.setFont(fonts.small)
     local name = C.PLAYER_NAMES[p]
     local nw   = fonts.small:getWidth(name)
-    local lx   = math.max(4, math.min(C.SW - nw - 4, cx - nw/2))
+    local lx, ly
+    if row then
+        lx, ly = cx + r + 12, cy - 12
+    else
+        lx, ly = math.max(4, math.min(C.SW - nw - 4, cx - nw/2)), cy + r + 8
+    end
     setColor(0, 0, 0, 0.38)
-    love.graphics.rectangle("fill", lx - 6, cy + r + 5, nw + 12, 24, 12)
+    love.graphics.rectangle("fill", lx - 6, ly - 3, nw + 12, 24, 12)
     setColor(active and PAL.yellow or PAL.white)
-    love.graphics.print(name, lx, cy + r + 8)
-    -- Card count: a mini card back + xN
+    love.graphics.print(name, lx, ly)
+    -- Their hand, visible: a mini fan of card backs that SHRINKS as they
+    -- play — you can see at a glance how many cards everyone holds, like
+    -- looking across a real table. Count label at the fan's end.
     local n = game.hands and game.hands[p] and #game.hands[p] or 0
+    local mfW, mfH, mfOV = 24, 34, 9
+    local fanW = (n > 0) and (mfW + (n - 1) * mfOV) or 0
     love.graphics.setFont(fonts.small)
-    local cntTxt = "x " .. n
-    local cw2 = fonts.small:getWidth(cntTxt)
-    local total = 16 + 6 + cw2
-    local bx = cx - total/2
-    local byy = cy + r + 34
-    setColor(0.15, 0.25, 0.62)
-    love.graphics.rectangle("fill", bx, byy, 16, 22, 3)
-    setColor(1, 1, 1, 0.35)
-    love.graphics.rectangle("line", bx, byy, 16, 22, 3)
-    setColor(PAL.white)
-    love.graphics.print(cntTxt, bx + 22, byy + 2)
+    local cntTxt = tostring(n)
+    local cw2 = fanW > 0 and (fonts.small:getWidth(cntTxt) + 8) or 0
+    local bx, byy
+    if row then
+        bx, byy = cx - r - 16 - fanW - cw2, cy - mfH/2
+    else
+        bx = math.max(4, math.min(C.SW - fanW - cw2 - 4, cx - (fanW + cw2)/2))
+        byy = cy + r + 34
+    end
+    for i = 1, n do
+        local fx = bx + (i - 1) * mfOV
+        -- fanned tilt: outermost cards lean a touch
+        local tilt = ((i - (n + 1) / 2) / math.max(1, n)) * 0.16
+        love.graphics.push()
+        love.graphics.translate(fx + mfW/2, byy + mfH/2)
+        love.graphics.rotate(tilt)
+        setColor(0, 0, 0, 0.30)
+        love.graphics.rectangle("fill", -mfW/2 + 1, -mfH/2 + 2, mfW, mfH, 3)
+        setColor(0.15, 0.25, 0.62)
+        love.graphics.rectangle("fill", -mfW/2, -mfH/2, mfW, mfH, 3)
+        setColor(0.30, 0.42, 0.85)
+        love.graphics.rectangle("fill", -mfW/2 + 3, -mfH/2 + 3, mfW - 6, mfH - 6, 2)
+        setColor(1, 1, 1, 0.30)
+        love.graphics.rectangle("line", -mfW/2, -mfH/2, mfW, mfH, 3)
+        love.graphics.pop()
+    end
+    if n > 0 then
+        setColor(PAL.white)
+        love.graphics.print(cntTxt, bx + fanW + 8, byy + (mfH - fonts.small:getHeight())/2)
+    end
     -- Role chip above the token
     if role then drawRoleChip(cx, cy - r - 14, role, roleBg) end
     setColor(1, 1, 1, 1)
@@ -1805,17 +1871,17 @@ function R.drawAuction(game, mx, my, selectedBid)
     -- four-fan table.
     if C.PHONE then
         drawHorizHand(game.hands[C.SOUTH], C.SW/2, C.SH-CH-14, true, nil, nil, nil, false)
-        drawSeatBadgePhone(game, C.NORTH, C.SW - 170, 96)
-        drawSeatBadgePhone(game, C.EAST,  C.SW - 70,  C.SH * 0.44)
-        drawSeatBadgePhone(game, C.WEST,  70,         C.SH * 0.72)
+        drawSeatBadgePhone(game, C.NORTH, C.SW - 84, 96)
+        drawSeatBadgePhone(game, C.EAST,  C.SW - 84,  math.floor(C.SH * 0.70))
+        drawSeatBadgePhone(game, C.WEST,  84,         math.floor(C.SH * 0.70))
         -- South label with HCP, above the fan
         love.graphics.setFont(fonts.small)
         local sname = "South"
         if a.dealer == C.SOUTH then sname = sname .. " (D)" end
         sname = sname .. string.format("   (%d HCP)", game.hcp and game.hcp[C.SOUTH] or 0)
         setColor((a.currentBidder == C.SOUTH and not a.finished) and PAL.yellow or PAL.white)
-        -- Left-aligned at the fan's edge so the bidding grid never covers it
-        love.graphics.print(sname, C.SW/2 - 330, C.SH - CH - 14 - 28)
+        -- Right side, clear of the grid, the action stack and the fan
+        love.graphics.print(sname, C.SW - 330, C.SH - CH - 42)
     else
         drawHorizHand(game.hands[C.NORTH], C.SW/2, 18,             false, nil, nil, nil, false)
         drawHorizHand(game.hands[C.SOUTH], C.SW/2, C.SH-CH-18,     true,  nil, nil, nil, false)
@@ -1860,8 +1926,9 @@ function R.drawAuction(game, mx, my, selectedBid)
     local boardX, boardY, boardW, boardH = 145, 170, 360, 380
     local boxX, boxY = 555, 170
     if C.PHONE then
-        boardX, boardY, boardW, boardH = 24, 58, 350, 350
-        boxX, boxY = math.floor(C.SW * 0.36), 54
+        boardX, boardY, boardW, boardH = 30, 56, 340, 340
+        -- Grid never starts inside the board (narrow tablet canvases)
+        boxX, boxY = math.max(math.floor(C.SW * 0.36), boardX + boardW + 18), 54
     end
     drawAuctionBoard(game, boardX, boardY, boardW, boardH)
 
@@ -1985,7 +2052,7 @@ function R.drawGame(game, southSel, southHov, northSel, northHov, revealCard)
                         true, nPlayable, northSel, northHov, false)
             popCardMetrics()
         else
-            drawSeatBadgePhone(game, C.NORTH, C.SW/2, 46)
+            drawSeatBadgePhone(game, C.NORTH, C.SW/2, 44, "row")
             nHits = {}
         end
 
@@ -2934,9 +3001,20 @@ function R.drawNewGameSetup(setupState, mx, my)
         local czX = C.SW/2 + 190
         drawCardSlider(czX, setY2 - 2, 210, mx, my, hits)
 
-        -- Live preview pair: desktop only (no room on the phone canvas,
-        -- and the phone table itself IS the preview via Options).
-        if not PHONE then
+        if PHONE then
+            -- TRUE-SIZE preview: your actual in-game card (the big South
+            -- fan size) peeks up from the corner, resizing live with the
+            -- slider — what you see here is exactly what you'll hold.
+            pushCardMetrics(PH.south_w())
+            local pvX = C.SW - CW - 44
+            local pvY = C.SH - math.floor(CH * 0.62)
+            setColor(PAL.text_dim)
+            love.graphics.setFont(fonts.small)
+            local lbl = "Your card size:"
+            love.graphics.print(lbl, pvX + CW/2 - fonts.small:getWidth(lbl)/2, pvY - 26)
+            drawCardFace(pvX, pvY, {rank = 14, suit = C.SPADES}, nil, false)
+            popCardMetrics()
+        else
             local pvX = C.SW - CW * 2 - 70
             local pvY = C.SH - CH - 30
             setColor(PAL.text_dim)
