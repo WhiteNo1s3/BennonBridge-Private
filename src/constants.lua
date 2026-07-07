@@ -110,13 +110,13 @@ C.CARD_W_MIN     = 72
 C.CARD_W_MAX     = 132
 C.CARD_W_DEFAULT = 132
 
--- Deal-number space. The ENGINE accepts any double-safe integer (LÖVE's
--- RandomGenerator spreads each one across its full 2^64 shuffle space), but
--- the CUSTOMER only ever sees a friendly 6-digit number: short enough to
--- read aloud over the phone, remember, and fit any layout — and a million
--- distinct deals is 130+ years of daily play.
-C.SEED_MAX    = 999999
-C.SEED_DIGITS = 6
+-- Deal-code space. The ENGINE works in integers spread across LÖVE's full
+-- 2^64 shuffle space; the CUSTOMER sees a compact base-34 CODE of at most
+-- 4 characters (see Deck.encodeSeed) — 1,336,336 distinct deals behind a
+-- token the size of "K7QX". As many deals as possible, as small on screen
+-- as possible.
+C.SEED_MAX = 34 ^ 4     -- 1,336,336
+C.CODE_LEN = 4
 
 -- Player-defined tournament length (boards per match). Odd counts so a
 -- match tends to produce a winner; capped where the traveler sheet is

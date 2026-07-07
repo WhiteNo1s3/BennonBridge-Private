@@ -15,8 +15,9 @@ local cardGivePool = {}
 local cardGivePoolIndex = 1
 local CARD_GIVE_POOL_SIZE = 8   -- enough for the fastest deals
 
-local winChime               -- procedural: soft bell arpeggio on a win
+local winChime               -- procedural: "ta-da!" fanfare on a win
 local sweepSwish             -- procedural: felt-brush swish on trick gather
+local uiClick                -- procedural: soft tick when a button is pressed
 
 -- ── Procedural sounds ──────────────────────────────────────────────────────
 -- Synthesised at load so they ship with the code (no asset files) and stay
@@ -24,31 +25,61 @@ local sweepSwish             -- procedural: felt-brush swish on trick gather
 -- a trick sweep is a short brushed-felt swish. Nothing that could grate on
 -- the hundredth hearing.
 
+-- A proper "ta-DA!": a short G4 pickup note, then a full C-major chord
+-- blooming with a gentle shimmer on the top note — the classic fanfare
+-- shape, kept soft enough to share a room with.
 local function makeWinChime()
-    local rate  = 44100
-    local dur   = 1.6
-    local n     = math.floor(rate * dur)
-    local sd    = love.sound.newSoundData(n, rate, 16, 1)
-    local notes = {523.25, 659.25, 783.99, 1046.50}    -- C5 E5 G5 C6
+    local rate = 44100
+    local dur  = 1.9
+    local n    = math.floor(rate * dur)
+    local sd   = love.sound.newSoundData(n, rate, 16, 1)
+    local T2   = 0.17                                  -- "DA" lands here
+    local chord = {523.25, 659.25, 783.99, 1046.50}    -- C5 E5 G5 C6
     for i = 0, n - 1 do
         local t = i / rate
         local v = 0
-        for k, f in ipairs(notes) do
-            local t0 = (k - 1) * 0.14
-            if t >= t0 then
-                local lt  = t - t0
-                local env = math.exp(-lt * 3.0)
-                -- Fundamental + a whisper of 2nd harmonic = soft bell
-                v = v + env * (math.sin(2 * math.pi * f * lt)
-                             + 0.18 * math.sin(4 * math.pi * f * lt))
+        -- "ta": quick G4 pickup, gone by the time the chord lands
+        if t < T2 then
+            local env = math.exp(-t * 9) * math.min(1, t * 200)
+            v = v + 0.9 * env * (math.sin(2 * math.pi * 392.00 * t)
+                        + 0.15 * math.sin(4 * math.pi * 392.00 * t))
+        end
+        -- "DA": the chord blooms and rings out
+        if t >= T2 then
+            local lt = t - T2
+            for k, f in ipairs(chord) do
+                local env = math.exp(-lt * 1.9) * math.min(1, lt * 120)
+                -- The top note shimmers (slow vibrato) so the ring stays alive
+                local fk  = (k == #chord)
+                    and f * (1 + 0.005 * math.sin(2 * math.pi * 5.5 * lt))
+                    or  f
+                v = v + env * (math.sin(2 * math.pi * fk * lt)
+                      + 0.15 * math.sin(4 * math.pi * fk * lt))
             end
         end
-        v = v * 0.20
+        v = v * 0.17
         if v > 1 then v = 1 elseif v < -1 then v = -1 end
         sd:setSample(i, v)
     end
     local src = love.audio.newSource(sd, "static")
-    src:setVolume(0.55)
+    src:setVolume(0.62)
+    return src
+end
+
+-- Soft UI click: a 40ms rounded tick for buttons — tactile, not clacky.
+local function makeClick()
+    local rate = 44100
+    local dur  = 0.045
+    local n    = math.floor(rate * dur)
+    local sd   = love.sound.newSoundData(n, rate, 16, 1)
+    for i = 0, n - 1 do
+        local t = i / rate
+        local v = math.sin(2 * math.pi * 1400 * t) * math.exp(-t * 110)
+                + 0.4 * math.sin(2 * math.pi * 700 * t) * math.exp(-t * 90)
+        sd:setSample(i, v * 0.5)
+    end
+    local src = love.audio.newSource(sd, "static")
+    src:setVolume(0.28)
     return src
 end
 
@@ -92,6 +123,7 @@ function S.load()
 
     winChime   = makeWinChime()
     sweepSwish = makeSweepSwish()
+    uiClick    = makeClick()
 end
 
 function S.setEnabled(on)
@@ -129,6 +161,13 @@ function S.playSweep()
     if not S.enabled or not sweepSwish then return end
     sweepSwish:stop()
     sweepSwish:play()
+end
+
+-- Soft tick on every button press (tactile feedback for touch screens).
+function S.playClick()
+    if not S.enabled or not uiClick then return end
+    uiClick:stop()
+    uiClick:play()
 end
 
 function S.stopAll()

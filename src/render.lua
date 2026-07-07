@@ -3,6 +3,7 @@
 local C    = require("src.constants")
 local AI   = require("src.ai")
 local Mood = require("src.mood")
+local Deck = require("src.deck")
 
 local R = {}
 
@@ -1051,7 +1052,7 @@ local function drawScorePanel(game)
     love.graphics.print("SCORE", x+8, y+6)
     love.graphics.setFont(fonts.small)
     setColor(PAL.text_dim)
-    local htxt = string.format("Hand #%d", game.seed)
+    local htxt = "Deal " .. Deck.encodeSeed(game.seed)
     love.graphics.print(htxt, x + w - (fonts.small:getWidth(htxt)) - 8, y+9)
     love.graphics.setFont(fonts.med)
     setColor(PAL.white)
@@ -2196,9 +2197,9 @@ function R.drawResult(game, setupState, mx, my)
     if not game.resultSeedPrepared then
         game.resultSeedPrepared = true
         if setupState.random then
-            setupState.seedBuf = tostring(love.math.random(1, C.SEED_MAX))
+            setupState.seedBuf = Deck.encodeSeed(love.math.random(1, C.SEED_MAX))
         else
-            setupState.seedBuf = tostring(game.seed + 1)
+            setupState.seedBuf = Deck.encodeSeed(game.seed + 1)
         end
     end
 
@@ -2254,8 +2255,8 @@ function R.drawResult(game, setupState, mx, my)
 
         setColor(PAL.text_dim)
         centredText(fonts.small,
-            "Match Start Seed: #" .. tostring(game.matchStartSeed or game.seed)
-            .. "     Board Seed: #" .. tostring(game.seed),
+            "Match Code: " .. Deck.encodeSeed(game.matchStartSeed or game.seed)
+            .. "     Board Code: " .. Deck.encodeSeed(game.seed),
             C.SW/2, by + 360, maxTxt)
 
         setColor(PAL.yellow)
@@ -2355,8 +2356,8 @@ function R.drawResult(game, setupState, mx, my)
     centredText(fonts.med, res.desc, C.SW/2, by + 140, maxTxt)
     setColor(PAL.text_dim)
     centredText(fonts.small,
-        string.format("Declarer took %d / %d tricks    Hand seed #%d",
-                      game.tricksDeclarer, game.contractTricks, game.seed),
+        string.format("Declarer took %d / %d tricks    Deal code %s",
+                      game.tricksDeclarer, game.contractTricks, Deck.encodeSeed(game.seed)),
         C.SW/2, by + 172, maxTxt)
     setColor(PAL.white)
     local sessionLabel = game.matchMode == "7board"
@@ -2373,7 +2374,7 @@ function R.drawResult(game, setupState, mx, my)
     love.graphics.setFont(fonts.med)
     love.graphics.print("Next Deal:", C.SW/2 - 180, rowY + 6)
 
-    local boxX, boxY, boxW, boxH = C.SW/2 - 70, rowY, 150, 44
+    local boxX, boxY, boxW, boxH = C.SW/2 - 70, rowY, 110, 44
     local focus = setupState.seedFocus
     setColor(focus and {0.20, 0.30, 0.50} or {0.12, 0.18, 0.30})
     love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 6)
@@ -2536,10 +2537,10 @@ function R.drawNewGameSetup(setupState, mx, my)
     setColor(PAL.white)
     love.graphics.setFont(fonts.med)
     local rowY = 148
-    love.graphics.print("Deal Number", C.SW/2 - 356, rowY + 11)
+    love.graphics.print("Deal Code", C.SW/2 - 340, rowY + 11)
 
     -- Typed deal-number box
-    local boxX, boxY, boxW, boxH = C.SW/2 - 210, rowY, 150, 44
+    local boxX, boxY, boxW, boxH = C.SW/2 - 210, rowY, 110, 44
     local focus = setupState.seedFocus
     setColor(focus and {0.20, 0.30, 0.50} or {0.12, 0.18, 0.30})
     love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 8)
@@ -2561,7 +2562,7 @@ function R.drawNewGameSetup(setupState, mx, my)
     hits[#hits+1] = {type="seedbox", x=boxX, y=boxY, w=boxW, h=boxH}
 
     -- Standalone "roll a new number" button — does nothing but that.
-    local _, rx, ry, rw, rh = button("Randomize", C.SW/2 - 8, rowY, 150, boxH,
+    local _, rx, ry, rw, rh = button("Randomize", C.SW/2 - 86, rowY, 150, boxH,
         mx, my, PAL.btn_green, PAL.btn_green_h)
     hits[#hits+1] = {type="random_now", x=rx, y=ry, w=rw, h=rh}
 
@@ -2571,7 +2572,7 @@ function R.drawNewGameSetup(setupState, mx, my)
     local randHCol = setupState.random and PAL.btn_green_h or PAL.btn_hover
     local _, tx, ty, tw, th = button(
         setupState.random and "Random Deals: On" or "Random Deals: Off",
-        C.SW/2 + 154, rowY, 200, boxH, mx, my, randCol, randHCol)
+        C.SW/2 + 78, rowY, 200, boxH, mx, my, randCol, randHCol)
     hits[#hits+1] = {type="random_toggle", x=tx, y=ty, w=tw, h=th}
 
     -- ── Format row ──
@@ -2772,7 +2773,7 @@ function R.drawMatchSummary(game, mx, my)
         }
         
         centredText(fonts.med, "BOARD", colCenters[1], by + 93)
-        centredText(fonts.med, "SEED", colCenters[2], by + 93)
+        centredText(fonts.med, "CODE", colCenters[2], by + 93)
         centredText(fonts.med, "CONTRACT", colCenters[3], by + 93)
         centredText(fonts.med, "DECLARER", colCenters[4], by + 93)
         centredText(fonts.med, "TRICKS", colCenters[5], by + 93)
@@ -2803,7 +2804,7 @@ function R.drawMatchSummary(game, mx, my)
                 centredText(fonts.med, tostring(detail.board), colCenters[1], ry + math.floor(pitch/2))
                 
                 -- Seed
-                centredText(fonts.med, "#" .. tostring(detail.seed), colCenters[2], ry + math.floor(pitch/2))
+                centredText(fonts.med, Deck.encodeSeed(detail.seed), colCenters[2], ry + math.floor(pitch/2))
                 
                 -- Contract
                 local contractStr = "Pass"

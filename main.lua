@@ -9,6 +9,7 @@ local R    = require("src.render")
 local V    = require("src.viewport")
 local SND  = require("src.sound")
 local Anim = require("src.anim")
+local Deck = require("src.deck")
 
 -- ── Global state ───────────────────────────────────────────────────────────
 
@@ -50,9 +51,9 @@ local LONGPRESS_TIME = 0.40
 
 -- ── Helpers ────────────────────────────────────────────────────────────────
 
--- One fresh deal number. Customer-facing numbers stay a friendly 6 digits
--- (C.SEED_MAX); the engine spreads each one across LÖVE's full 2^64 shuffle
--- space, so behind the scenes every number is a completely distinct deal.
+-- One fresh deal, drawn uniformly across the whole code space. The customer
+-- sees it as a compact 4-character code (Deck.encodeSeed); internally the
+-- engine spreads it across LÖVE's full 2^64 shuffle space.
 local function randomSeed()
     return love.math.random(1, C.SEED_MAX)
 end
@@ -95,11 +96,10 @@ local function dealFromSetup()
     SND.setEnabled(setupState.soundOn and true or false)
     R.setBackTheme(setupState.backTheme)
     R.setMood(setupState)
-    -- Parse the seed buffer; empty = random
-    local seed = tonumber(setupState.seedBuf) or randomSeed()
-    if seed < 1 then seed = 1 end
+    -- Parse the deal code; anything unreadable = fresh random deal
+    local seed = Deck.decodeSeed(setupState.seedBuf) or randomSeed()
     setupState.seed    = seed
-    setupState.seedBuf = tostring(seed)
+    setupState.seedBuf = Deck.encodeSeed(seed)
     
     game.matchMode = setupState.matchMode
     game.confettiFired = false
@@ -131,7 +131,7 @@ function love.load()
     SND.load()
     game = Game.new()
     setupState = {
-        seedBuf = "1",
+        seedBuf = Deck.encodeSeed(1),
         seed    = 1,
         random  = false,
         autoSouth = false,
@@ -185,15 +185,15 @@ function love.update(dt)
                         game.matchSeeds = game.matchSeeds or {}
                         game.matchSeeds[game.matchBoard] = nextSeed
                     end
-                    setupState.seedBuf = tostring(nextSeed)
+                    setupState.seedBuf = Deck.encodeSeed(nextSeed)
                     dealFromSetup()
                 end
             else
                 -- Single match auto-advance
                 if setupState.random then
-                    setupState.seedBuf = tostring(randomSeed())
+                    setupState.seedBuf = Deck.encodeSeed(randomSeed())
                 else
-                    setupState.seedBuf = tostring(game.seed + 1)
+                    setupState.seedBuf = Deck.encodeSeed(game.seed + 1)
                 end
                 dealFromSetup()
             end
@@ -349,9 +349,9 @@ end
 
 function love.textinput(text)
     if (game.state == C.STATE_NEWGAME or game.state == C.STATE_RESULT) and setupState.seedFocus then
-        -- Digits only, up to C.SEED_DIGITS (a trillion distinct deals)
-        if text:match("%d") and #setupState.seedBuf < C.SEED_DIGITS then
-            setupState.seedBuf = setupState.seedBuf .. text
+        -- Deal codes are base-34: letters and digits, up to 4 characters
+        if text:match("%w") and #setupState.seedBuf < (C.CODE_LEN or 4) then
+            setupState.seedBuf = setupState.seedBuf .. text:upper()
         end
     end
 end
@@ -408,6 +408,7 @@ function onMainMenuClick(x, y)
         setupState.confirmSpectator = false
         return
     end
+    SND.playClick()
     if h.type == "newgame" then
         game.sessionScore = {0, 0}
         game.matchBoard = 1
@@ -441,10 +442,11 @@ function onSetupClick(x, y)
     local h = hitTest(setupHits, x, y)
     setupState.seedFocus = false
     if not h then return end
+    SND.playClick()
 
     if h.type == "deal" then
         if setupState.random then
-            setupState.seedBuf = tostring(randomSeed())
+            setupState.seedBuf = Deck.encodeSeed(randomSeed())
         end
         dealFromSetup()
 
@@ -452,7 +454,7 @@ function onSetupClick(x, y)
         setupState.seedFocus = true
 
     elseif h.type == "random_now" then
-        setupState.seedBuf = tostring(randomSeed())
+        setupState.seedBuf = Deck.encodeSeed(randomSeed())
 
     elseif h.type == "random_toggle" then
         setupState.random = not setupState.random
@@ -527,6 +529,7 @@ function onAuctionClick(x, y)
     -- Only act on human's turn
     if not game.auction or game.auction.currentBidder ~= C.SOUTH then return end
     if game.autoSouth then return end
+    SND.playClick()
 
     if h.type == "bidcell" then
         -- Cell click selects (or deselects) the bid; doesn't submit yet
@@ -577,6 +580,7 @@ function onPlayPress(x, y)
     local oh = hitTest(gameOptsHits, x, y)
     if oh then
         if oh.type == "optsgear" then
+            SND.playClick()
             gameOptsOpen = not gameOptsOpen
         elseif oh.type == "cardslider" then
             sliderDrag = oh
@@ -638,6 +642,7 @@ function onResultClick(x, y)
     local h = hitTest(resultHits, x, y)
     setupState.seedFocus = false
     if not h then return end
+    SND.playClick()
 
     if h.type == "reveal_table" then
         game.showMatchDetailsTable = true
@@ -666,7 +671,7 @@ function onResultClick(x, y)
             game.matchSeeds = game.matchSeeds or {}
             game.matchSeeds[game.matchBoard] = nextSeed
         end
-        setupState.seedBuf = tostring(nextSeed)
+        setupState.seedBuf = Deck.encodeSeed(nextSeed)
         dealFromSetup()
         return
     end
@@ -674,9 +679,9 @@ function onResultClick(x, y)
     if h.type == "seedbox" then
         setupState.seedFocus = true
     elseif h.type == "random_now" then
-        setupState.seedBuf = tostring(randomSeed())
+        setupState.seedBuf = Deck.encodeSeed(randomSeed())
     elseif h.type == "replay" then
-        setupState.seedBuf = tostring(game.seed)
+        setupState.seedBuf = Deck.encodeSeed(game.seed)
         dealFromSetup()
         
     elseif h.type == "next_hand" then
@@ -697,7 +702,7 @@ function onResultClick(x, y)
         game.matchBoardDetails = {}
         game.showMatchDetailsTable = false
         local firstSeed = game.matchSeeds and game.matchSeeds[1] or game.matchStartSeed or 1
-        setupState.seedBuf = tostring(firstSeed)
+        setupState.seedBuf = Deck.encodeSeed(firstSeed)
         dealFromSetup()
 
     elseif h.type == "new_match" then
@@ -714,7 +719,7 @@ function onResultClick(x, y)
         end
         game.matchStartSeed = newStartSeed
         game.matchSeeds = {newStartSeed}
-        setupState.seedBuf = tostring(newStartSeed)
+        setupState.seedBuf = Deck.encodeSeed(newStartSeed)
         dealFromSetup()
 
     elseif h.type == "menu" then
