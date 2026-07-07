@@ -653,6 +653,19 @@ local function drawCardBack(x, y)
             love.graphics.line(x+5, fy, x+CW-5, fy)
         end
     end
+    -- Edge seam: a soft 3px shading ring inside the card's own bounds.
+    -- In a tightly overlapped fan of identical backs this is the line that
+    -- makes thirteen cards read as thirteen CARDS instead of one slab —
+    -- the shadow a real card edge casts on the card beneath it. Works for
+    -- every fan direction (the ring is symmetric) and is clipped by the
+    -- card stencil, so corners stay clean.
+    love.graphics.setLineWidth(1)
+    setColor(0, 0, 0, 0.16)
+    love.graphics.rectangle("line", x + 0.5, y + 0.5, CW - 1, CH - 1, CR)
+    setColor(0, 0, 0, 0.08)
+    love.graphics.rectangle("line", x + 1.5, y + 1.5, CW - 3, CH - 3, math.max(2, CR - 1))
+    setColor(0, 0, 0, 0.04)
+    love.graphics.rectangle("line", x + 2.5, y + 2.5, CW - 5, CH - 5, math.max(2, CR - 2))
     endCard(x, y, false)
 end
 
@@ -875,14 +888,18 @@ local TRICK_OFFSET = 76
 -- width (the player's Card Size slider), so the slider still works on the
 -- phone — it scales the whole ensemble.
 local PH = {}
-function PH.south_w() return math.floor(CW * 1.33 + 0.5) end   -- the star
+function PH.south_w() return math.floor(CW * C.PHONE_SOUTH_SCALE + 0.5) end   -- the star
 function PH.dummy_w() return CW end                            -- readable fan
 -- Side dummy (E/W declares): AI-played, display-only - compact enough to
 -- clear the corner panels and never clip the screen edge.
-function PH.side_w()  return math.floor(CW * 0.64 + 0.5) end
+function PH.side_w()  return math.floor(CW * C.PHONE_SIDE_SCALE + 0.5) end
 function PH.trick_w() return math.floor(CW * 0.90 + 0.5) end   -- cluster
 
-local function phoneTrickCY() return math.floor(C.SH * 0.44) end
+-- Trick-cluster centre: high enough that the E/W trick cards' bottom edge
+-- lands exactly ON the (1.52×) South fan's top — an opponent's played card
+-- may touch your fan but can never cover one of YOUR ranks while you are
+-- choosing what to play.
+local function phoneTrickCY() return math.floor(C.SH * 0.39) end
 
 local trickPos = {
     [C.NORTH] = function()
@@ -916,10 +933,10 @@ local function handAnchor(player)
         -- Fan anchors, computed from the BASE card width (this runs inside
         -- the trick-metric push, so module CW is the trick size here).
         local base = R.CARD_W or CW
-        local bw   = math.floor(base * 0.64 + 0.5)          -- PH.side_w
+        local bw   = math.floor(base * C.PHONE_SIDE_SCALE + 0.5)    -- PH.side_w
         local bh   = math.floor(bw * (134 / 96) + 0.5)
         local sx   = bh/2 + 8
-        local sw2  = math.floor(base * 1.33 + 0.5)          -- PH.south_w
+        local sw2  = math.floor(base * C.PHONE_SOUTH_SCALE + 0.5)   -- PH.south_w
         local sh2  = math.floor(sw2 * (134 / 96) + 0.5)
         if     player == C.NORTH then return C.SW/2,          8 + bh/2,           0
         elseif player == C.SOUTH then return C.SW/2,          C.SH - 12 - sh2/2,  0

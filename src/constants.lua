@@ -122,6 +122,14 @@ C.CARD_W_MIN     = 72
 C.CARD_W_MAX     = 132
 C.CARD_W_DEFAULT = 132
 
+-- Phone-table card scales, relative to the base card width (the slider).
+-- The PLAYER is the star of this product: their fan renders half again
+-- larger than the base card, while the AI seats hold compact fans of backs
+-- at the edges. One source of truth — render.lua (layout + hit boxes) and
+-- anim.lua (deal landing spots) both read these.
+C.PHONE_SOUTH_SCALE = 1.52
+C.PHONE_SIDE_SCALE  = 0.64
+
 -- Deal-code space. The ENGINE works in integers spread across LÖVE's full
 -- 2^64 shuffle space; the CUSTOMER sees a compact base-34 CODE of at most
 -- 4 characters (see Deck.encodeSeed) — 1,336,336 distinct deals behind a

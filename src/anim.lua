@@ -98,11 +98,11 @@ function A.startDeal(hands, dealer)
     -- land on the very slots they'll occupy during play.
     local posOf
     if C.PHONE then
-        local backW  = math.floor(CARD_W * 0.64 + 0.5)
+        local backW  = math.floor(CARD_W * C.PHONE_SIDE_SCALE + 0.5)
         local backH  = math.floor(backW * (134 / 96) + 0.5)
         local backOV = math.max(12, math.floor(backW * (32 / 96) + 0.5))
         local sideX  = backH/2 + 8
-        local sW     = math.floor(CARD_W * 1.33 + 0.5)
+        local sW     = math.floor(CARD_W * C.PHONE_SOUTH_SCALE + 0.5)
         local sH     = math.floor(sW * (134 / 96) + 0.5)
         local sOV    = math.max(12, math.floor(sW * (32 / 96) + 0.5))
         sOV = math.max(sOV, math.min(84, math.floor((C.SW * 0.84 - sW) / 12)))
