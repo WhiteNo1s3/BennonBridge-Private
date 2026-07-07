@@ -139,7 +139,8 @@ function love.load()
         soundOn   = true,    -- master sound toggle
         backTheme = 1,       -- 1..9 (rotates through card-back PNGs)
         cardW     = C.CARD_W_DEFAULT,      -- continuous card width (slider)
-        matchBoards = C.MATCH_DEFAULT,     -- boards per match (player-set rules)
+        matchBoards = C.MATCH_DEFAULT,     -- boards per match (8/12/16, standard)
+        textSize  = C.TEXT_DEFAULT,        -- Regular / Large / Extra Large
         -- Table mood (V2): when weatherOn is true the board re-themes itself
         -- by wall-clock time; otherwise it sticks to the player-chosen moodId.
         weatherOn = true,
@@ -462,13 +463,20 @@ function onSetupClick(x, y)
     elseif h.type == "match_toggle" then
         setupState.matchMode = setupState.matchMode == "7board" and "single" or "7board"
 
-    elseif h.type == "match_minus" then
-        setupState.matchBoards = math.max(C.MATCH_MIN,
-            (setupState.matchBoards or C.MATCH_DEFAULT) - 2)
+    elseif h.type == "match_minus" or h.type == "match_plus" then
+        -- Step through the standard contest lengths (8 / 12 / 16) only.
+        local lens = C.MATCH_LENGTHS
+        local idx = 1
+        for i, n in ipairs(lens) do
+            if n == (setupState.matchBoards or C.MATCH_DEFAULT) then idx = i break end
+        end
+        idx = idx + (h.type == "match_plus" and 1 or -1)
+        idx = math.max(1, math.min(#lens, idx))
+        setupState.matchBoards = lens[idx]
 
-    elseif h.type == "match_plus" then
-        setupState.matchBoards = math.min(C.MATCH_MAX,
-            (setupState.matchBoards or C.MATCH_DEFAULT) + 2)
+    elseif h.type == "textsize" then
+        setupState.textSize = ((setupState.textSize or C.TEXT_DEFAULT) % #C.TEXT_SCALES) + 1
+        R.setTextScale(setupState.textSize)
 
     elseif h.type == "introanim" then
         setupState.introAnim = not setupState.introAnim
@@ -585,6 +593,10 @@ function onPlayPress(x, y)
         elseif oh.type == "cardslider" then
             sliderDrag = oh
             applyCardSlider(oh, x)
+        elseif oh.type == "textsize" then
+            SND.playClick()
+            setupState.textSize = ((setupState.textSize or C.TEXT_DEFAULT) % #C.TEXT_SCALES) + 1
+            R.setTextScale(setupState.textSize)
         end
         return
     end

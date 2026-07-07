@@ -109,17 +109,30 @@ local function pruneHoverState()
     hoverSeen = {}
 end
 
+-- ── Reactive text system ────────────────────────────────────────────────────
+-- The player picks a text size (Regular / Large / Extra Large); every font
+-- tier is rebuilt at the chosen multiplier and, at Large and above, all
+-- centred text (headings, button labels, banners) renders faux-bold. Draw
+-- code reads the `fonts` table every frame, so the whole UI — buttons
+-- included — reacts the instant the setting changes. No reload, no restart.
+local textBold = false
+R.TEXT_SIZE = C.TEXT_DEFAULT
+
+function R.setTextScale(idx)
+    idx = math.max(1, math.min(#C.TEXT_SCALES, math.floor(idx or C.TEXT_DEFAULT)))
+    local k = C.TEXT_SCALES[idx]
+    fonts.tiny   = love.graphics.newFont(math.floor(12 * k + 0.5))
+    fonts.small  = love.graphics.newFont(math.floor(15 * k + 0.5))
+    fonts.med    = love.graphics.newFont(math.floor(17 * k + 0.5))
+    fonts.large  = love.graphics.newFont(math.floor(24 * k + 0.5))
+    fonts.huge   = love.graphics.newFont(math.floor(36 * k + 0.5))
+    fonts.title  = love.graphics.newFont(64)     -- the BRIDGE splash stays as-is
+    textBold     = idx >= 2
+    R.TEXT_SIZE  = idx
+end
+
 function R.load()
-    -- Senior-friendly sizes: every tier is a notch up from V1 (11/13/16/22/34)
-    -- so labels read at arm's length on a phone without any layout blowing out
-    -- (checked against the tightest labels: "Hardest" in 70px diff buttons and
-    -- the 12-digit seed in its 190px box).
-    fonts.tiny   = love.graphics.newFont(12)
-    fonts.small  = love.graphics.newFont(15)
-    fonts.med    = love.graphics.newFont(17)
-    fonts.large  = love.graphics.newFont(24)
-    fonts.huge   = love.graphics.newFont(36)
-    fonts.title  = love.graphics.newFont(64)
+    R.setTextScale(C.TEXT_DEFAULT)
     fonts.cardRk = love.graphics.newFont(13)
     fonts.cardFace = love.graphics.newFont(34)
 
@@ -294,9 +307,14 @@ local function centredText(font, text, cx, cy, maxWidth)
         love.graphics.translate(cx, cy)
         love.graphics.scale(scale, scale)
         love.graphics.print(text, -tw/2, -th/2)
+        -- Faux-bold at Large text sizes: a second pass one pixel over
+        -- thickens every glyph stroke (works at any font size, no bold
+        -- font file needed — important for the Android build).
+        if textBold then love.graphics.print(text, -tw/2 + 1, -th/2) end
         love.graphics.pop()
     else
         love.graphics.print(text, cx - tw/2, cy - th/2)
+        if textBold then love.graphics.print(text, cx - tw/2 + 1, cy - th/2) end
     end
 end
 
@@ -1904,7 +1922,7 @@ function R.drawGameOptions(optsOpen, mx, my)
     hits[#hits+1] = {type = "optsgear", x = gx, y = gy, w = gw, h = gh}
 
     if optsOpen then
-        local px, py, pw, ph = 8, 144, 330, 102
+        local px, py, pw, ph = 8, 144, 330, 164
         setColor(0, 0, 0, 0.4)
         love.graphics.rectangle("fill", px + 3, py + 4, pw, ph, 10)
         setColor(0x2C/255, 0x30/255, 0x3A/255, 0.97)
@@ -1919,6 +1937,13 @@ function R.drawGameOptions(optsOpen, mx, my)
         hits[#hits+1] = {type = "optspanel", x = px, y = py, w = pw, h = ph}
 
         drawCardSlider(px + 16, py + 14, pw - 32, mx, my, hits)
+
+        -- Text size, mid-hand too: the table re-renders with the new fonts
+        -- on the very next frame.
+        local _, tzx, tzy, tzw, tzh = button(
+            "Text: " .. (C.TEXT_NAMES[R.TEXT_SIZE] or "Large"),
+            px + 16, py + 62, pw - 32, 44, mx, my, PAL.btn_blue, PAL.btn_hover)
+        hits[#hits+1] = {type = "textsize", x = tzx, y = tzy, w = tzw, h = tzh}
 
         setColor(PAL.text_dim)
         love.graphics.setFont(fonts.tiny)
@@ -2590,7 +2615,8 @@ function R.drawNewGameSetup(setupState, mx, my)
     hits[#hits+1] = {type="match_toggle", x=mmx, y=mmy, w=mmw, h=mmh}
 
     if isMatch then
-        -- Boards stepper, right of the format button
+        -- Standard contest lengths only (8 / 12 / 16): the -/+ steps
+        -- through C.MATCH_LENGTHS, never an off-convention count.
         local _, dmx, dmy, dmw, dmh = button("-", C.SW/2 + 204, matchRowY, 44, 44,
             mx, my, PAL.btn_blue, PAL.btn_hover)
         hits[#hits+1] = {type="match_minus", x=dmx, y=dmy, w=dmw, h=dmh}
@@ -2648,21 +2674,28 @@ function R.drawNewGameSetup(setupState, mx, my)
     love.graphics.print("Card Back", backX, setY + 13)
     local pvW, pvH = 50, 44
     setColor(0, 0, 0, 0.3)
-    love.graphics.rectangle("fill", backX + 88, setY, pvW, pvH, 5)
+    love.graphics.rectangle("fill", backX + 112, setY, pvW, pvH, 5)
     if currentBack then
         setColor(1, 1, 1)
-        love.graphics.draw(currentBack, backX + 88, setY, 0,
+        love.graphics.draw(currentBack, backX + 112, setY, 0,
             pvW / currentBack:getWidth(), pvH / currentBack:getHeight())
     end
     setColor(PAL.text_dim)
     love.graphics.setLineWidth(1)
-    love.graphics.rectangle("line", backX + 88, setY, pvW, pvH, 5)
-    local _, px, py, pw, ph = button("<", backX + 150, setY, 44, 44, mx, my,
+    love.graphics.rectangle("line", backX + 112, setY, pvW, pvH, 5)
+    local _, px, py, pw, ph = button("<", backX + 174, setY, 44, 44, mx, my,
         PAL.btn_blue, PAL.btn_hover)
     hits[#hits+1] = {type="backprev", x=px, y=py, w=pw, h=ph}
-    local _, nx, ny, nw, nh = button(">", backX + 202, setY, 44, 44, mx, my,
+    local _, nx, ny, nw, nh = button(">", backX + 226, setY, 44, 44, mx, my,
         PAL.btn_blue, PAL.btn_hover)
     hits[#hits+1] = {type="backnext", x=nx, y=ny, w=nw, h=nh}
+
+    -- Text size cycle: bigger + bolder; the WHOLE interface re-renders with
+    -- the new fonts the moment it's pressed (this very button included).
+    local _, tzx, tzy, tzw, tzh = button(
+        "Text: " .. (C.TEXT_NAMES[R.TEXT_SIZE] or "Large"),
+        backX + 286, setY, 190, 44, mx, my, PAL.btn_blue, PAL.btn_hover)
+    hits[#hits+1] = {type="textsize", x=tzx, y=tzy, w=tzw, h=tzh}
 
     -- ── Table style row ──
     -- Automatic = the felt re-themes itself with the time of day (sunrise /
@@ -2780,12 +2813,13 @@ function R.drawMatchSummary(game, mx, my)
         centredText(fonts.med, "POINTS", colCenters[6], by + 93)
         centredText(fonts.med, "WINNER", colCenters[7], by + 93)
         
-        -- Render data rows. Row pitch shrinks for longer matches so the
-        -- whole traveler always fits on one screen (44px at 7 boards,
-        -- ~34px at 9).
-        love.graphics.setFont(fonts.med)
-        local ML    = game.matchLength or 7
+        -- Render data rows. Row pitch (and, past 8 boards, the row font)
+        -- shrinks for longer matches so the whole traveler always fits on
+        -- one screen: 43px rows at 8 boards, 29px at 12, 21px at 16.
+        local ML    = game.matchLength or 8
         local pitch = math.min(44, math.floor(348 / ML))
+        local rowFont = (ML > 8) and fonts.small or fonts.med
+        love.graphics.setFont(rowFont)
         for i = 1, ML do
             local ry = by + 120 + (i - 1) * pitch
             
@@ -2801,10 +2835,10 @@ function R.drawMatchSummary(game, mx, my)
             if detail then
                 -- Board No
                 setColor(PAL.text_dim)
-                centredText(fonts.med, tostring(detail.board), colCenters[1], ry + math.floor(pitch/2))
+                centredText(rowFont, tostring(detail.board), colCenters[1], ry + math.floor(pitch/2))
                 
                 -- Seed
-                centredText(fonts.med, Deck.encodeSeed(detail.seed), colCenters[2], ry + math.floor(pitch/2))
+                centredText(rowFont, Deck.encodeSeed(detail.seed), colCenters[2], ry + math.floor(pitch/2))
                 
                 -- Contract
                 local contractStr = "Pass"
@@ -2817,23 +2851,23 @@ function R.drawMatchSummary(game, mx, my)
                     contractStr = tostring(lvl) .. denom .. extra
                 end
                 setColor(PAL.white)
-                centredText(fonts.med, contractStr, colCenters[3], ry + math.floor(pitch/2))
+                centredText(rowFont, contractStr, colCenters[3], ry + math.floor(pitch/2))
                 
                 -- Declarer
                 setColor(PAL.text_dim)
                 local declName = detail.declarer and C.PLAYER_NAMES[detail.declarer] or "—"
-                centredText(fonts.med, declName, colCenters[4], ry + math.floor(pitch/2))
+                centredText(rowFont, declName, colCenters[4], ry + math.floor(pitch/2))
                 
                 -- Tricks Made / Target
                 local tricksStr = "—"
                 if detail.contract then
                     tricksStr = string.format("%d / %d", detail.tricksDeclarer, detail.contractTricks)
                 end
-                centredText(fonts.med, tricksStr, colCenters[5], ry + math.floor(pitch/2))
+                centredText(rowFont, tricksStr, colCenters[5], ry + math.floor(pitch/2))
                 
                 -- Points
                 local ptsStr = tostring(detail.points) .. " pts"
-                centredText(fonts.med, ptsStr, colCenters[6], ry + math.floor(pitch/2))
+                centredText(rowFont, ptsStr, colCenters[6], ry + math.floor(pitch/2))
                 
                 -- Winner
                 local winSide = detail.winnerSide or "—"
@@ -2844,17 +2878,17 @@ function R.drawMatchSummary(game, mx, my)
                 else
                     setColor(PAL.text_dim)
                 end
-                centredText(fonts.med, winSide, colCenters[7], ry + math.floor(pitch/2))
+                centredText(rowFont, winSide, colCenters[7], ry + math.floor(pitch/2))
             else
                 -- Not played yet
                 setColor(PAL.text_dim)
-                centredText(fonts.med, tostring(i), colCenters[1], ry + math.floor(pitch/2))
-                centredText(fonts.med, "—", colCenters[2], ry + math.floor(pitch/2))
-                centredText(fonts.med, "—", colCenters[3], ry + math.floor(pitch/2))
-                centredText(fonts.med, "—", colCenters[4], ry + math.floor(pitch/2))
-                centredText(fonts.med, "—", colCenters[5], ry + math.floor(pitch/2))
-                centredText(fonts.med, "—", colCenters[6], ry + math.floor(pitch/2))
-                centredText(fonts.med, "—", colCenters[7], ry + math.floor(pitch/2))
+                centredText(rowFont, tostring(i), colCenters[1], ry + math.floor(pitch/2))
+                centredText(rowFont, "—", colCenters[2], ry + math.floor(pitch/2))
+                centredText(rowFont, "—", colCenters[3], ry + math.floor(pitch/2))
+                centredText(rowFont, "—", colCenters[4], ry + math.floor(pitch/2))
+                centredText(rowFont, "—", colCenters[5], ry + math.floor(pitch/2))
+                centredText(rowFont, "—", colCenters[6], ry + math.floor(pitch/2))
+                centredText(rowFont, "—", colCenters[7], ry + math.floor(pitch/2))
             end
         end
         

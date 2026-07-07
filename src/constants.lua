@@ -118,11 +118,17 @@ C.CARD_W_DEFAULT = 132
 C.SEED_MAX = 34 ^ 4     -- 1,336,336
 C.CODE_LEN = 4
 
--- Player-defined tournament length (boards per match). Odd counts so a
--- match tends to produce a winner; capped where the traveler sheet is
--- still readable on one screen.
-C.MATCH_MIN     = 3
-C.MATCH_MAX     = 9
-C.MATCH_DEFAULT = 7
+-- Tournament lengths follow real bridge convention: contests run in
+-- multiples of four boards (8 / 12 / 16), so deals rotate evenly around
+-- the table. The player picks which; the traveler sheet adapts its row
+-- pitch so even 16 boards fit one screen.
+C.MATCH_LENGTHS = {8, 12, 16}
+C.MATCH_DEFAULT = 8
+
+-- Text size steps (player option, senior-first). Multiplier applied to
+-- every font tier; steps 2+ also render bold. Default is "Large".
+C.TEXT_SCALES  = {1.0, 1.15, 1.32}
+C.TEXT_NAMES   = {"Regular", "Large", "Extra Large"}
+C.TEXT_DEFAULT = 2
 
 return C
