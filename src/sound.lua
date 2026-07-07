@@ -25,44 +25,56 @@ local uiClick                -- procedural: soft tick when a button is pressed
 -- a trick sweep is a short brushed-felt swish. Nothing that could grate on
 -- the hundredth hearing.
 
--- A proper "ta-DA!": a short G4 pickup note, then a full C-major chord
--- blooming with a gentle shimmer on the top note — the classic fanfare
--- shape, kept soft enough to share a room with.
+-- A real "TA-DA!" — organ voicing, not a synth. Each note is a drawbar-style
+-- harmonic stack (fundamental + octaves + fifth-ish partials) doubled with a
+-- slightly detuned copy for warm chorus, plus a slow tremolo on the held
+-- chord. "TA" is a short G-major pickup, "DAAA" a held C-major that breathes
+-- out. No pitch vibrato anywhere — that sine-shimmer was the alien part.
+local ORGAN_H = {
+    {1, 1.00}, {2, 0.55}, {3, 0.22}, {4, 0.30}, {6, 0.12}, {8, 0.06},
+}
+
+local function organ(t, f)
+    local v = 0
+    for _, h in ipairs(ORGAN_H) do
+        local hf = f * h[1]
+        v = v + h[2] * math.sin(2 * math.pi * hf * t)
+        -- chorus: a quiet detuned double gives the pipes their warmth
+        v = v + h[2] * 0.32 * math.sin(2 * math.pi * hf * 1.004 * t + 0.7)
+    end
+    return v
+end
+
 local function makeWinChime()
     local rate = 44100
-    local dur  = 1.9
+    local dur  = 2.1
     local n    = math.floor(rate * dur)
     local sd   = love.sound.newSoundData(n, rate, 16, 1)
-    local T2   = 0.17                                  -- "DA" lands here
-    local chord = {523.25, 659.25, 783.99, 1046.50}    -- C5 E5 G5 C6
+    local T2   = 0.18                                     -- "DA" lands here
+    local TA   = {196.00, 246.94, 293.66}                 -- G3 B3 D4
+    local DA   = {261.63, 329.63, 392.00, 523.25}         -- C4 E4 G4 C5
     for i = 0, n - 1 do
         local t = i / rate
         local v = 0
-        -- "ta": quick G4 pickup, gone by the time the chord lands
+        -- "TA": short pickup chord, released before the resolution
         if t < T2 then
-            local env = math.exp(-t * 9) * math.min(1, t * 200)
-            v = v + 0.9 * env * (math.sin(2 * math.pi * 392.00 * t)
-                        + 0.15 * math.sin(4 * math.pi * 392.00 * t))
+            local env = math.min(1, t * 160) * math.exp(-t * 7)
+            for _, f in ipairs(TA) do v = v + env * organ(t, f) end
         end
-        -- "DA": the chord blooms and rings out
+        -- "DAAA": the held chord, swelling in fast, breathing out slowly,
+        -- with a gentle organ tremolo (amplitude only, never pitch)
         if t >= T2 then
-            local lt = t - T2
-            for k, f in ipairs(chord) do
-                local env = math.exp(-lt * 1.9) * math.min(1, lt * 120)
-                -- The top note shimmers (slow vibrato) so the ring stays alive
-                local fk  = (k == #chord)
-                    and f * (1 + 0.005 * math.sin(2 * math.pi * 5.5 * lt))
-                    or  f
-                v = v + env * (math.sin(2 * math.pi * fk * lt)
-                      + 0.15 * math.sin(4 * math.pi * fk * lt))
-            end
+            local lt   = t - T2
+            local env  = math.min(1, lt * 90) * math.exp(-lt * 1.35)
+            local trem = 1 + 0.07 * math.sin(2 * math.pi * 5.0 * lt)
+            for _, f in ipairs(DA) do v = v + env * trem * organ(lt, f) end
         end
-        v = v * 0.17
+        v = v * 0.052
         if v > 1 then v = 1 elseif v < -1 then v = -1 end
         sd:setSample(i, v)
     end
     local src = love.audio.newSource(sd, "static")
-    src:setVolume(0.62)
+    src:setVolume(0.66)
     return src
 end
 
