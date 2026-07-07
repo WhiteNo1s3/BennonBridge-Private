@@ -445,6 +445,14 @@ function AI.chooseCard(state, player, difficulty)
     local partner = C.PARTNER[player]
 
     if difficulty == C.EASY then
+        -- A believable NEWBIE, not a random-number generator: about a third
+        -- of the time they do the obvious sensible thing (so the game still
+        -- feels like bridge), the rest is a guess — wasted honours, missed
+        -- wins — exactly the mistakes a beginner at the table would make,
+        -- and visible enough that the player learns from them.
+        if love.math.random() < 0.35 then
+            return AI.mediumPlay(hand, trick, trump, partner)
+        end
         local ledSuit = (#trick > 0) and trick[1].card.suit or nil
         return AI.easyPlay(AI.legalCards(hand, ledSuit))
     elseif difficulty == C.MEDIUM then
@@ -454,7 +462,17 @@ function AI.chooseCard(state, player, difficulty)
     end
 
     -- HARDER / HARDEST: full Monte-Carlo lookahead to the end of the hand.
-    local ok, card = pcall(monteCarloPlay, state, player, MC_WORLDS[difficulty] or 16)
+    -- HARDEST thinks tightest exactly where it matters most: when it is
+    -- DECLARING (playing its own hand or the dummy it controls, both of
+    -- which it can see) the sample budget rises ~70%, so the declarer line
+    -- is as close to correct as the engine gets — even a weak partner's
+    -- defence elsewhere won't stop it fighting for the contract.
+    local worlds = MC_WORLDS[difficulty] or 16
+    if difficulty == C.HARDEST
+       and (player == state.declarer or player == state.dummy) then
+        worlds = 200
+    end
+    local ok, card = pcall(monteCarloPlay, state, player, worlds)
     if ok and card then return card end
     -- Engine hiccup (should not happen): fall back to the classic heuristic
     if difficulty == C.HARDER then

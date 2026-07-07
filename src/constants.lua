@@ -110,11 +110,19 @@ C.CARD_W_MIN     = 72
 C.CARD_W_MAX     = 132
 C.CARD_W_DEFAULT = 132
 
--- Seed space. LÖVE's RandomGenerator takes any double-safe integer, so the
--- practical limit is what fits the input box and stays exact in a Lua
--- number: 12 digits (a trillion distinct deals — every hand your family
--- ever plays can have its own number).
-C.SEED_MAX    = 999999999999
-C.SEED_DIGITS = 12
+-- Deal-number space. The ENGINE accepts any double-safe integer (LÖVE's
+-- RandomGenerator spreads each one across its full 2^64 shuffle space), but
+-- the CUSTOMER only ever sees a friendly 6-digit number: short enough to
+-- read aloud over the phone, remember, and fit any layout — and a million
+-- distinct deals is 130+ years of daily play.
+C.SEED_MAX    = 999999
+C.SEED_DIGITS = 6
+
+-- Player-defined tournament length (boards per match). Odd counts so a
+-- match tends to produce a winner; capped where the traveler sheet is
+-- still readable on one screen.
+C.MATCH_MIN     = 3
+C.MATCH_MAX     = 9
+C.MATCH_DEFAULT = 7
 
 return C

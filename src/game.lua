@@ -383,6 +383,9 @@ function Game:_startNextTrick()
     self.currentTrick  = {}
     self.state         = C.STATE_PLAYING
     self.aiTimer       = 0
+    -- The renderer sweeps the gathered trick to the winner right now; a
+    -- soft felt swish sells the motion.
+    S.playSweep()
 end
 
 -- ── Scoring ────────────────────────────────────────────────────────────────
@@ -445,6 +448,10 @@ function Game:_endHand()
     -- the points, regardless of whether they were declaring or defending.
     local humanSideIsDeclaring = (self.declaringSide == "NS")
     self.humanWon = (humanSideIsDeclaring == result.declarerWins)
+
+    -- Win fanfare fires with the confetti (the result screen shows on the
+    -- very next frame, so chime + confetti land together).
+    if self.humanWon then S.playWin() end
 
     -- Capture board details
     if self.matchMode == "7board" then

@@ -50,9 +50,9 @@ local LONGPRESS_TIME = 0.40
 
 -- ── Helpers ────────────────────────────────────────────────────────────────
 
--- One fresh seed, full range. Every "random seed" in the game comes through
--- here so the whole seed space (1 .. C.SEED_MAX, a trillion deals) is in
--- play, not the old 99,999.
+-- One fresh deal number. Customer-facing numbers stay a friendly 6 digits
+-- (C.SEED_MAX); the engine spreads each one across LÖVE's full 2^64 shuffle
+-- space, so behind the scenes every number is a completely distinct deal.
 local function randomSeed()
     return love.math.random(1, C.SEED_MAX)
 end
@@ -107,6 +107,7 @@ local function dealFromSetup()
     if game.matchMode == "7board" then
         if not game.matchBoard or game.matchBoard == 1 then
             game.matchBoard = 1
+            game.matchLength = setupState.matchBoards or C.MATCH_DEFAULT
             game.matchStartSeed = seed
             game.matchSeeds = {seed}
             game.matchWins = {0, 0}
@@ -138,6 +139,7 @@ function love.load()
         soundOn   = true,    -- master sound toggle
         backTheme = 1,       -- 1..9 (rotates through card-back PNGs)
         cardW     = C.CARD_W_DEFAULT,      -- continuous card width (slider)
+        matchBoards = C.MATCH_DEFAULT,     -- boards per match (player-set rules)
         -- Table mood (V2): when weatherOn is true the board re-themes itself
         -- by wall-clock time; otherwise it sticks to the player-chosen moodId.
         weatherOn = true,
@@ -167,7 +169,7 @@ function love.update(dt)
         if game.aiTimer > linger then
             game.aiTimer = 0
             if game.matchMode == "7board" then
-                if game.matchBoard >= 7 then
+                if game.matchBoard >= (game.matchLength or 7) then
                     game.state = "match_summary"
                 else
                     game.matchBoard = game.matchBoard + 1
@@ -458,6 +460,14 @@ function onSetupClick(x, y)
     elseif h.type == "match_toggle" then
         setupState.matchMode = setupState.matchMode == "7board" and "single" or "7board"
 
+    elseif h.type == "match_minus" then
+        setupState.matchBoards = math.max(C.MATCH_MIN,
+            (setupState.matchBoards or C.MATCH_DEFAULT) - 2)
+
+    elseif h.type == "match_plus" then
+        setupState.matchBoards = math.min(C.MATCH_MAX,
+            (setupState.matchBoards or C.MATCH_DEFAULT) + 2)
+
     elseif h.type == "introanim" then
         setupState.introAnim = not setupState.introAnim
         Anim.enabled = setupState.introAnim
@@ -638,7 +648,7 @@ function onResultClick(x, y)
     end
     
     if h.type == "next_board_anywhere" then
-        if game.matchBoard >= 7 then
+        if game.matchBoard >= (game.matchLength or 7) then
             game.state = "match_summary"
             return
         end
@@ -671,7 +681,7 @@ function onResultClick(x, y)
         
     elseif h.type == "next_hand" then
         if game.matchMode == "7board" then
-            if game.matchBoard >= 7 then
+            if game.matchBoard >= (game.matchLength or 7) then
                 game.state = "match_summary"
                 return
             end
@@ -700,7 +710,7 @@ function onResultClick(x, y)
         if setupState.random then
             newStartSeed = randomSeed()
         else
-            newStartSeed = (game.matchStartSeed or game.seed or 1) + 7
+            newStartSeed = (game.matchStartSeed or game.seed or 1) + (game.matchLength or 7)
         end
         game.matchStartSeed = newStartSeed
         game.matchSeeds = {newStartSeed}

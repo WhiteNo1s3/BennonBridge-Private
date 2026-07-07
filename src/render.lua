@@ -863,11 +863,15 @@ local function drawSweep()
     -- unified silhouette lays down solid card stock so the table can never
     -- bleed through — so the gather reads through motion + scale instead.)
     local scale = 1 - 0.72 * e * e
-    for _, c in ipairs(sweep.cards) do
+    for ci, c in ipairs(sweep.cards) do
         local cx = (c.x + CW/2) + (sweep.tx - (c.x + CW/2)) * e
         local cy = (c.y + CH/2) + (sweep.ty - (c.y + CH/2)) * e
+        -- Each card curls a touch as it's gathered — alternating direction
+        -- per card so the pile "closes like a hand", not a rigid block.
+        local curl = (ci % 2 == 0 and 1 or -1) * 0.22 * e
         love.graphics.push()
         love.graphics.translate(cx, cy)
+        love.graphics.rotate(curl)
         love.graphics.scale(scale, scale)
         drawCardFace(-CW/2, -CH/2, c.card, nil, false)
         love.graphics.pop()
@@ -2215,7 +2219,7 @@ function R.drawResult(game, setupState, mx, my)
         -- Title (auto-shrinks to fit)
         setColor(PAL.yellow)
         centredText(fonts.title,
-            "BOARD " .. tostring(game.matchBoard) .. " OF 7 COMPLETE",
+            "BOARD " .. tostring(game.matchBoard) .. " OF " .. tostring(game.matchLength or 7) .. " COMPLETE",
             C.SW/2, by + 55, maxTxt)
 
         setColor(won and {0.35, 0.90, 0.45} or {0.95, 0.35, 0.35})
@@ -2356,7 +2360,7 @@ function R.drawResult(game, setupState, mx, my)
         C.SW/2, by + 172, maxTxt)
     setColor(PAL.white)
     local sessionLabel = game.matchMode == "7board"
-        and string.format("Match Score (Board %d/7)", game.matchBoard or 1)
+        and string.format("Match Score (Board %d/%d)", game.matchBoard or 1, game.matchLength or 7)
         or "Session Score"
     centredText(fonts.med,
         string.format("%s   N-S: %d pts     E-W: %d pts",
@@ -2369,7 +2373,7 @@ function R.drawResult(game, setupState, mx, my)
     love.graphics.setFont(fonts.med)
     love.graphics.print("Next Deal:", C.SW/2 - 180, rowY + 6)
 
-    local boxX, boxY, boxW, boxH = C.SW/2 - 70, rowY, 190, 36
+    local boxX, boxY, boxW, boxH = C.SW/2 - 70, rowY, 150, 44
     local focus = setupState.seedFocus
     setColor(focus and {0.20, 0.30, 0.50} or {0.12, 0.18, 0.30})
     love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 6)
@@ -2399,7 +2403,8 @@ function R.drawResult(game, setupState, mx, my)
     local _, r1x, r1y, r1w, r1h = button("Replay Hand", C.SW/2 - 315, btnY, 200, 62, mx, my, PAL.btn_blue, PAL.btn_hover)
     hits[#hits+1] = {type="replay", x=r1x, y=r1y, w=r1w, h=r1h}
 
-    local nextText = game.matchMode == "7board" and (game.matchBoard >= 7 and "MATCH SUMMARY" or "Next Board ("..tostring(game.matchBoard+1).."/7)") or "Next Hand"
+    local ML = game.matchLength or 7
+    local nextText = game.matchMode == "7board" and (game.matchBoard >= ML and "MATCH SUMMARY" or "Next Board ("..tostring(game.matchBoard+1).."/"..ML..")") or "Next Hand"
     local nextCol = {0.15, 0.55, 0.22}
     local nextHov = {0.22, 0.78, 0.30}
 
@@ -2534,7 +2539,7 @@ function R.drawNewGameSetup(setupState, mx, my)
     love.graphics.print("Deal Number", C.SW/2 - 356, rowY + 11)
 
     -- Typed deal-number box
-    local boxX, boxY, boxW, boxH = C.SW/2 - 210, rowY, 190, 44
+    local boxX, boxY, boxW, boxH = C.SW/2 - 210, rowY, 150, 44
     local focus = setupState.seedFocus
     setColor(focus and {0.20, 0.30, 0.50} or {0.12, 0.18, 0.30})
     love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 8)
@@ -2570,14 +2575,30 @@ function R.drawNewGameSetup(setupState, mx, my)
     hits[#hits+1] = {type="random_toggle", x=tx, y=ty, w=tw, h=th}
 
     -- ── Format row ──
+    -- The player sets the tournament rules: single hands, or a match of a
+    -- length they choose (odd counts, C.MATCH_MIN..MATCH_MAX boards).
     local matchRowY = rowY + boxH + 14
     local isMatch = setupState.matchMode == "7board"
+    local nBoards = setupState.matchBoards or C.MATCH_DEFAULT
     local matchCol  = isMatch and {0.6, 0.2, 0.6} or PAL.btn_blue
     local matchHCol = isMatch and {0.7, 0.3, 0.7} or PAL.btn_hover
     local _, mmx,mmy,mmw,mmh = button(
-        isMatch and "Format: 7-Board Match" or "Format: Single Hands",
+        isMatch and ("Format: Match of " .. nBoards .. " Boards")
+                 or  "Format: Single Hands",
         C.SW/2 - 190, matchRowY, 380, 44, mx, my, matchCol, matchHCol)
     hits[#hits+1] = {type="match_toggle", x=mmx, y=mmy, w=mmw, h=mmh}
+
+    if isMatch then
+        -- Boards stepper, right of the format button
+        local _, dmx, dmy, dmw, dmh = button("-", C.SW/2 + 204, matchRowY, 44, 44,
+            mx, my, PAL.btn_blue, PAL.btn_hover)
+        hits[#hits+1] = {type="match_minus", x=dmx, y=dmy, w=dmw, h=dmh}
+        setColor(PAL.white)
+        centredText(fonts.med, tostring(nBoards), C.SW/2 + 274, matchRowY + 22)
+        local _, pmx, pmy, pmw, pmh = button("+", C.SW/2 + 300, matchRowY, 44, 44,
+            mx, my, PAL.btn_blue, PAL.btn_hover)
+        hits[#hits+1] = {type="match_plus", x=pmx, y=pmy, w=pmw, h=pmh}
+    end
 
     -- ── Difficulty rows ──
     local diffTitleY = matchRowY + 44 + 18
@@ -2729,7 +2750,7 @@ function R.drawMatchSummary(game, mx, my)
         love.graphics.setLineWidth(1)
         
         setColor(PAL.yellow)
-        centredText(fonts.large, "7-BOARD MATCH DETAILS (TRAVELER SHEET)", C.SW/2, by + 40)
+        centredText(fonts.large, string.format("%d-BOARD MATCH DETAILS (TRAVELER SHEET)", game.matchLength or 7), C.SW/2, by + 40)
         
         -- Header Row Background
         setColor(0.12, 0.16, 0.22, 0.6)
@@ -2758,10 +2779,14 @@ function R.drawMatchSummary(game, mx, my)
         centredText(fonts.med, "POINTS", colCenters[6], by + 93)
         centredText(fonts.med, "WINNER", colCenters[7], by + 93)
         
-        -- Render data rows
+        -- Render data rows. Row pitch shrinks for longer matches so the
+        -- whole traveler always fits on one screen (44px at 7 boards,
+        -- ~34px at 9).
         love.graphics.setFont(fonts.med)
-        for i = 1, 7 do
-            local ry = by + 120 + (i - 1) * 44
+        local ML    = game.matchLength or 7
+        local pitch = math.min(44, math.floor(348 / ML))
+        for i = 1, ML do
+            local ry = by + 120 + (i - 1) * pitch
             
             -- Alternating row colors
             if i % 2 == 1 then
@@ -2769,16 +2794,16 @@ function R.drawMatchSummary(game, mx, my)
             else
                 setColor(1, 1, 1, 0.05)
             end
-            love.graphics.rectangle("fill", bx + 30, ry, bw - 60, 40, 4)
+            love.graphics.rectangle("fill", bx + 30, ry, bw - 60, pitch - 4, 4)
             
             local detail = game.matchBoardDetails and game.matchBoardDetails[i]
             if detail then
                 -- Board No
                 setColor(PAL.text_dim)
-                centredText(fonts.med, tostring(detail.board), colCenters[1], ry + 20)
+                centredText(fonts.med, tostring(detail.board), colCenters[1], ry + math.floor(pitch/2))
                 
                 -- Seed
-                centredText(fonts.med, "#" .. tostring(detail.seed), colCenters[2], ry + 20)
+                centredText(fonts.med, "#" .. tostring(detail.seed), colCenters[2], ry + math.floor(pitch/2))
                 
                 -- Contract
                 local contractStr = "Pass"
@@ -2791,23 +2816,23 @@ function R.drawMatchSummary(game, mx, my)
                     contractStr = tostring(lvl) .. denom .. extra
                 end
                 setColor(PAL.white)
-                centredText(fonts.med, contractStr, colCenters[3], ry + 20)
+                centredText(fonts.med, contractStr, colCenters[3], ry + math.floor(pitch/2))
                 
                 -- Declarer
                 setColor(PAL.text_dim)
                 local declName = detail.declarer and C.PLAYER_NAMES[detail.declarer] or "—"
-                centredText(fonts.med, declName, colCenters[4], ry + 20)
+                centredText(fonts.med, declName, colCenters[4], ry + math.floor(pitch/2))
                 
                 -- Tricks Made / Target
                 local tricksStr = "—"
                 if detail.contract then
                     tricksStr = string.format("%d / %d", detail.tricksDeclarer, detail.contractTricks)
                 end
-                centredText(fonts.med, tricksStr, colCenters[5], ry + 20)
+                centredText(fonts.med, tricksStr, colCenters[5], ry + math.floor(pitch/2))
                 
                 -- Points
                 local ptsStr = tostring(detail.points) .. " pts"
-                centredText(fonts.med, ptsStr, colCenters[6], ry + 20)
+                centredText(fonts.med, ptsStr, colCenters[6], ry + math.floor(pitch/2))
                 
                 -- Winner
                 local winSide = detail.winnerSide or "—"
@@ -2818,17 +2843,17 @@ function R.drawMatchSummary(game, mx, my)
                 else
                     setColor(PAL.text_dim)
                 end
-                centredText(fonts.med, winSide, colCenters[7], ry + 20)
+                centredText(fonts.med, winSide, colCenters[7], ry + math.floor(pitch/2))
             else
                 -- Not played yet
                 setColor(PAL.text_dim)
-                centredText(fonts.med, tostring(i), colCenters[1], ry + 20)
-                centredText(fonts.med, "—", colCenters[2], ry + 20)
-                centredText(fonts.med, "—", colCenters[3], ry + 20)
-                centredText(fonts.med, "—", colCenters[4], ry + 20)
-                centredText(fonts.med, "—", colCenters[5], ry + 20)
-                centredText(fonts.med, "—", colCenters[6], ry + 20)
-                centredText(fonts.med, "—", colCenters[7], ry + 20)
+                centredText(fonts.med, tostring(i), colCenters[1], ry + math.floor(pitch/2))
+                centredText(fonts.med, "—", colCenters[2], ry + math.floor(pitch/2))
+                centredText(fonts.med, "—", colCenters[3], ry + math.floor(pitch/2))
+                centredText(fonts.med, "—", colCenters[4], ry + math.floor(pitch/2))
+                centredText(fonts.med, "—", colCenters[5], ry + math.floor(pitch/2))
+                centredText(fonts.med, "—", colCenters[6], ry + math.floor(pitch/2))
+                centredText(fonts.med, "—", colCenters[7], ry + math.floor(pitch/2))
             end
         end
         
