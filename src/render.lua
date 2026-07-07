@@ -2865,7 +2865,7 @@ function R.drawNewGameSetup(setupState, mx, my)
     -- ── Format row ──
     -- The player sets the tournament rules: single hands, or a match of a
     -- standard length (8 / 12 / 16 boards).
-    local matchRowY = rowY + boxH + (PHONE and 10 or 14)
+    local matchRowY = rowY + boxH + 14
     local isMatch = setupState.matchMode == "7board"
     local nBoards = setupState.matchBoards or C.MATCH_DEFAULT
     local matchCol  = isMatch and {0.6, 0.2, 0.6} or PAL.btn_blue
@@ -2890,14 +2890,14 @@ function R.drawNewGameSetup(setupState, mx, my)
     end
 
     -- ── Difficulty rows ──
-    local diffTitleY = matchRowY + 44 + (PHONE and 10 or 18)
+    local diffTitleY = matchRowY + 44 + (PHONE and 14 or 18)
     setColor(PAL.white)
     love.graphics.setFont(fonts.med)
-    centredText(fonts.med, "Opponent Difficulty", C.SW/2, diffTitleY)
+    centredText(fonts.med, "Opponents", C.SW/2, diffTitleY)
 
     local aiPlayers = {C.NORTH, C.EAST, C.WEST}
-    local diffRow0  = diffTitleY + (PHONE and 14 or 16)
-    local diffPitch = PHONE and 50 or 54
+    local diffRow0  = diffTitleY + 16
+    local diffPitch = PHONE and 52 or 54
     for row, p in ipairs(aiPlayers) do
         local ry = diffRow0 + (row-1) * diffPitch
         setColor(PAL.text_dim)
@@ -2955,10 +2955,14 @@ function R.drawNewGameSetup(setupState, mx, my)
 
     -- Text size cycle: bigger + bolder; the WHOLE interface re-renders with
     -- the new fonts the moment it's pressed (this very button included).
-    local _, tzx, tzy, tzw, tzh = button(
-        "Text: " .. (C.TEXT_NAMES[R.TEXT_SIZE] or "Large"),
-        backX + 286, setY, 190, 44, mx, my, PAL.btn_blue, PAL.btn_hover)
-    hits[#hits+1] = {type="textsize", x=tzx, y=tzy, w=tzw, h=tzh}
+    -- On the phone this lives in the right-hand column instead (below the
+    -- card preview), so the settings row stays uncrowded.
+    if not PHONE then
+        local _, tzx, tzy, tzw, tzh = button(
+            "Text: " .. (C.TEXT_NAMES[R.TEXT_SIZE] or "Large"),
+            backX + 286, setY, 190, 44, mx, my, PAL.btn_blue, PAL.btn_hover)
+        hits[#hits+1] = {type="textsize", x=tzx, y=tzy, w=tzw, h=tzh}
+    end
 
     -- ── Table style row ──
     -- Automatic = the felt re-themes itself with the time of day (sunrise /
@@ -2997,32 +3001,40 @@ function R.drawNewGameSetup(setupState, mx, my)
     -- spacing scales proportionally — the player only chooses SIZE, never
     -- raw spacing. A true-size preview pair renders at the bottom-right so
     -- the change is visible live, before dealing.
-    do
+    if PHONE then
+        -- ── Right-hand column: preview card, Card Size, Text size ──
+        -- The preview is FULLY on screen (nothing falls off the edge): your
+        -- actual in-game card at true size, with the Card Size slider and
+        -- the Text button stacked beneath it. Everything reacts live.
+        local colX = C.SW - 300
+        pushCardMetrics(PH.south_w())
+        local pvW, pvH = CW, CH
+        popCardMetrics()
+        local colTop = 128
+        setColor(PAL.text_dim)
+        love.graphics.setFont(fonts.small)
+        local lbl = "Your card size:"
+        love.graphics.print(lbl, colX + 130 - fonts.small:getWidth(lbl)/2, colTop)
+        pushCardMetrics(PH.south_w())
+        drawCardFace(colX + 130 - CW/2, colTop + 26, {rank = 14, suit = C.SPADES}, nil, false)
+        popCardMetrics()
+        local sliderY = colTop + 26 + pvH + 24
+        drawCardSlider(colX + 20, sliderY, 220, mx, my, hits)
+        local _, tzx, tzy, tzw, tzh = button(
+            "Text: " .. (C.TEXT_NAMES[R.TEXT_SIZE] or "Large"),
+            colX + 20, sliderY + 52, 220, 44, mx, my, PAL.btn_blue, PAL.btn_hover)
+        hits[#hits+1] = {type="textsize", x=tzx, y=tzy, w=tzw, h=tzh}
+    else
         local czX = C.SW/2 + 190
         drawCardSlider(czX, setY2 - 2, 210, mx, my, hits)
 
-        if PHONE then
-            -- TRUE-SIZE preview: your actual in-game card (the big South
-            -- fan size) peeks up from the corner, resizing live with the
-            -- slider — what you see here is exactly what you'll hold.
-            pushCardMetrics(PH.south_w())
-            local pvX = C.SW - CW - 44
-            local pvY = C.SH - math.floor(CH * 0.62)
-            setColor(PAL.text_dim)
-            love.graphics.setFont(fonts.small)
-            local lbl = "Your card size:"
-            love.graphics.print(lbl, pvX + CW/2 - fonts.small:getWidth(lbl)/2, pvY - 26)
-            drawCardFace(pvX, pvY, {rank = 14, suit = C.SPADES}, nil, false)
-            popCardMetrics()
-        else
-            local pvX = C.SW - CW * 2 - 70
-            local pvY = C.SH - CH - 30
-            setColor(PAL.text_dim)
-            love.graphics.setFont(fonts.small)
-            love.graphics.print("Live size preview:", pvX, pvY - 22)
-            drawCardFace(pvX, pvY, {rank = 14, suit = C.SPADES}, nil, false)
-            drawCardBack(pvX + CW + 14, pvY)
-        end
+        local pvX = C.SW - CW * 2 - 70
+        local pvY = C.SH - CH - 30
+        setColor(PAL.text_dim)
+        love.graphics.setFont(fonts.small)
+        love.graphics.print("Live size preview:", pvX, pvY - 22)
+        drawCardFace(pvX, pvY, {rank = 14, suit = C.SPADES}, nil, false)
+        drawCardBack(pvX + CW + 14, pvY)
     end
 
     -- ── Deal button + Back ──
