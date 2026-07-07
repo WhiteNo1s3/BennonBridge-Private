@@ -86,9 +86,21 @@ C.IS_MINOR     = {true,  true,  false, false, false}
 -- AI delay between calls during the auction
 C.AUCTION_AI_DELAY = 0.9
 
--- Display
-C.SW = 1280
-C.SH = 800
+-- Display.
+--
+-- PHONE MODE (the critical Android fix): a phone is physically ~7cm tall in
+-- landscape, so mapping the desktop's 800 virtual pixels onto it renders
+-- cards 16mm tall and text under 2mm — a shrunken PC screen. On Android we
+-- use a DENSER canvas: 620 virtual pixels of height across the same glass
+-- makes every card, button and letter ~30% physically larger, and the
+-- virtual width stretches to the phone's real aspect ratio (set each frame
+-- by viewport.V.update) so the table fills the screen edge-to-edge.
+-- Screens with phone-specific layouts key off C.PHONE.
+C.PHONE = (love.system and love.system.getOS() == "Android") or false
+C.SW = 1280                       -- adaptive on phones (see viewport.lua)
+C.SH = C.PHONE and 620 or 800
+C.SW_MIN = 1100                   -- adaptive-width clamp (phone)
+C.SW_MAX = 1600
 
 -- Card size drives the whole table layout. Seat badges, side-hand insets and
 -- the trick spread are derived from CARD_H in render.lua, so bumping these four

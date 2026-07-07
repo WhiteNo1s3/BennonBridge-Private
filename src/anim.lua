@@ -88,13 +88,25 @@ function A.startDeal(hands, dealer)
     local order = {C.NEXT[dealer], C.NEXT[C.NEXT[dealer]],
                    C.NEXT[C.NEXT[C.NEXT[dealer]]], dealer}
 
-    -- Player position centers + orientation (matches render)
-    local posOf = {
-        [C.NORTH] = {cx = C.SW/2,        cy = 18 + CARD_H/2,         angle = 0,         horiz = true},
-        [C.SOUTH] = {cx = C.SW/2,        cy = C.SH - 18 - CARD_H/2,  angle = 0,         horiz = true},
-        [C.EAST]  = {cx = C.SW - SIDE_X, cy = C.SH/2,                angle = math.pi/2, horiz = false},
-        [C.WEST]  = {cx = SIDE_X,        cy = C.SH/2,                angle =-math.pi/2, horiz = false},
-    }
+    -- Player position centers + orientation (matches render).
+    -- PHONE: opponents are compass badges, so their cards fly to a tidy
+    -- pile at the badge instead of a fan; South still fans out.
+    local posOf
+    if C.PHONE then
+        posOf = {
+            [C.NORTH] = {cx = C.SW/2,      cy = 54,                    angle = 0,        horiz = true,  pile = true},
+            [C.SOUTH] = {cx = C.SW/2,      cy = C.SH - 14 - CARD_H/2,  angle = 0,        horiz = true},
+            [C.EAST]  = {cx = C.SW - 84,   cy = C.SH * 0.44,           angle = math.pi/2,horiz = false, pile = true},
+            [C.WEST]  = {cx = 84,          cy = C.SH * 0.44,           angle =-math.pi/2,horiz = false, pile = true},
+        }
+    else
+        posOf = {
+            [C.NORTH] = {cx = C.SW/2,        cy = 18 + CARD_H/2,         angle = 0,         horiz = true},
+            [C.SOUTH] = {cx = C.SW/2,        cy = C.SH - 18 - CARD_H/2,  angle = 0,         horiz = true},
+            [C.EAST]  = {cx = C.SW - SIDE_X, cy = C.SH/2,                angle = math.pi/2, horiz = false},
+            [C.WEST]  = {cx = SIDE_X,        cy = C.SH/2,                angle =-math.pi/2, horiz = false},
+        }
+    end
 
     -- Issue cards one at a time, advancing the player after each
     local slots = {[1] = 0, [2] = 0, [3] = 0, [4] = 0}
@@ -106,7 +118,12 @@ function A.startDeal(hands, dealer)
 
         local pos = posOf[player]
         local toX, toY
-        if pos.horiz then
+        if pos.pile then
+            -- Tidy pile at the badge: a small per-card offset keeps the
+            -- landing visible without pretending to be a fan.
+            toX = pos.cx + (slots[player] % 3 - 1) * 2
+            toY = pos.cy + (slots[player] % 4 - 1.5) * 2
+        elseif pos.horiz then
             toX, toY = horizFanXY(pos.cx, pos.cy, slots[player], 13)
         else
             toX, toY = vertFanXY(pos.cx, pos.cy, slots[player], 13)

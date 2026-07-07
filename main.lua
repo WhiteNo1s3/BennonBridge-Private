@@ -140,7 +140,7 @@ function love.load()
         backTheme = 1,       -- 1..9 (rotates through card-back PNGs)
         cardW     = C.CARD_W_DEFAULT,      -- continuous card width (slider)
         matchBoards = C.MATCH_DEFAULT,     -- boards per match (8/12/16, standard)
-        textSize  = C.TEXT_DEFAULT,        -- Regular / Large / Extra Large
+        textSize  = C.PHONE and 3 or C.TEXT_DEFAULT,  -- phones open Extra Large
         -- Table mood (V2): when weatherOn is true the board re-themes itself
         -- by wall-clock time; otherwise it sticks to the player-chosen moodId.
         weatherOn = true,
@@ -153,6 +153,7 @@ function love.load()
     }
     R.setMood(setupState)
     R.setCardScale(setupState.cardW)
+    R.setTextScale(setupState.textSize)
     game.state = C.STATE_MENU
 end
 
