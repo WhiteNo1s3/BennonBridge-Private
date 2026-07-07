@@ -86,11 +86,17 @@ local cardBacks = {}
 local currentBack = nil   -- Image | nil
 R.BACK_COUNT = 0          -- how many themes the user can cycle through
 
--- Confetti particle system (triggered on a winning result)
+-- Confetti particle system (triggered on a winning result).
+-- A CELEBRATION, not a screen-filler: two party poppers fire from the
+-- bottom corners toward the centre, then a brief curtain of slim strips
+-- flutters down and fades. Coordinated champagne-and-felt palette.
 local confetti = { particles = {}, active = false, spawnFor = 0 }
 local CONFETTI_COLORS = {
-    {1.00, 0.30, 0.30}, {1.00, 0.78, 0.20}, {0.30, 0.85, 0.45},
-    {0.35, 0.65, 1.00}, {0.95, 0.45, 0.95}, {1.00, 1.00, 0.45},
+    {1.00, 0.83, 0.30},   -- gold
+    {0.98, 0.93, 0.72},   -- champagne
+    {0.99, 0.98, 0.94},   -- ivory
+    {0.45, 0.82, 0.52},   -- emerald light
+    {0.98, 0.62, 0.35},   -- warm apricot accent
 }
 
 -- Track the previous game state so we can fire confetti on entering RESULT
@@ -210,9 +216,39 @@ function R.setBackTheme(idx)
 end
 
 -- ── Confetti ──────────────────────────────────────────────────────────────
+local function newPiece(x, y, vx, vy)
+    return {
+        x = x, y = y, vx = vx, vy = vy,
+        rot   = love.math.random() * math.pi * 2,
+        rotV  = (love.math.random() - 0.5) * 6,
+        col   = CONFETTI_COLORS[love.math.random(#CONFETTI_COLORS)],
+        w     = 9 + love.math.random() * 5,    -- slim strips, not chunks
+        h     = 3.5,
+        life  = 2.6 + love.math.random() * 1.2,
+        life0 = 0,                              -- set below
+        sway  = 1.2 + love.math.random() * 1.6, -- flutter frequency
+        swayA = 26 + love.math.random() * 30,   -- flutter amplitude
+        phase = love.math.random() * math.pi * 2,
+        t     = 0,
+    }
+end
+
 local function spawnConfettiBurst()
     confetti.active   = true
-    confetti.spawnFor = 6.0   -- spawn for 6s; particles linger ~2-3s after
+    confetti.spawnFor = 2.2      -- a short curtain, then it's over
+    -- Party poppers: two corner bursts angled toward the screen centre.
+    for side = 0, 1 do
+        local px = side == 0 and 30 or C.SW - 30
+        local dir = side == 0 and 1 or -1
+        for _ = 1, 34 do
+            local ang   = -math.pi/2 + dir * (0.18 + love.math.random() * 0.5)
+            local speed = 480 + love.math.random() * 360
+            local p = newPiece(px, C.SH - 20,
+                math.cos(ang) * speed, math.sin(ang) * speed)
+            confetti.particles[#confetti.particles + 1] = p
+        end
+    end
+    for _, p in ipairs(confetti.particles) do p.life0 = p.life end
 end
 
 function R.update(dt)
@@ -225,29 +261,30 @@ function R.update(dt)
     if not confetti.active then return end
     if confetti.spawnFor > 0 then
         confetti.spawnFor = confetti.spawnFor - dt
-        for _ = 1, 4 do
-            confetti.particles[#confetti.particles+1] = {
-                x   = love.math.random() * C.SW,
-                y   = -20,
-                vx  = (love.math.random() - 0.5) * 160,
-                vy  = 80 + love.math.random() * 160,
-                rot = love.math.random() * math.pi * 2,
-                rotV= (love.math.random() - 0.5) * 12,
-                col = CONFETTI_COLORS[love.math.random(#CONFETTI_COLORS)],
-                size= 6 + love.math.random() * 8,
-                life= 4 + love.math.random() * 3,
-            }
+        -- A light curtain from the top: two slim strips a frame, drifting
+        -- down with a flutter — sparse enough to read as celebration, not
+        -- static filling the screen.
+        for _ = 1, 2 do
+            local p = newPiece(love.math.random() * C.SW, -16,
+                (love.math.random() - 0.5) * 40,
+                60 + love.math.random() * 90)
+            p.life0 = p.life
+            confetti.particles[#confetti.particles + 1] = p
         end
     end
     for i = #confetti.particles, 1, -1 do
         local p = confetti.particles[i]
-        p.vy   = p.vy + 380 * dt          -- gravity
-        p.vx   = p.vx * (1 - dt * 0.4)
+        p.t    = p.t + dt
+        -- Gravity + strong air drag: popper pieces arc up then FLOAT down
+        p.vy   = p.vy + 420 * dt
+        if p.vy > 130 then p.vy = 130 end        -- terminal velocity: gentle fall
+        p.vx   = p.vx * (1 - dt * 1.6)
         p.x    = p.x + p.vx * dt
+                 + math.sin(p.t * p.sway * math.pi * 2 + p.phase) * p.swayA * dt
         p.y    = p.y + p.vy * dt
         p.rot  = p.rot + p.rotV * dt
         p.life = p.life - dt
-        if p.life <= 0 or p.y > C.SH + 40 then
+        if p.life <= 0 or p.y > C.SH + 30 then
             table.remove(confetti.particles, i)
         end
     end
@@ -262,10 +299,15 @@ local function drawConfetti()
         love.graphics.push()
         love.graphics.translate(p.x, p.y)
         love.graphics.rotate(p.rot)
-        love.graphics.setColor(p.col[1], p.col[2], p.col[3], math.min(1, p.life/1.5))
-        love.graphics.rectangle("fill", -p.size/2, -p.size/3, p.size, p.size*0.5, 1)
+        -- Strips "tumble": width squeezes on a sine so they catch the light
+        local squeeze = 0.35 + 0.65 * math.abs(math.sin(p.t * 3.1 + p.phase))
+        local alpha = math.min(1, p.life / 0.7)      -- gentle fade at the end
+        love.graphics.setColor(p.col[1], p.col[2], p.col[3], alpha)
+        love.graphics.rectangle("fill", -p.w * squeeze / 2, -p.h / 2,
+            p.w * squeeze, p.h, 1.5)
         love.graphics.pop()
     end
+    love.graphics.setColor(1, 1, 1, 1)
 end
 
 -- Called by drawResult on state-entry to trigger celebrations.
@@ -559,14 +601,14 @@ local function drawCardFace(x, y, card, highlight, dimmed)
     local img = cardImg[card.rank] and cardImg[card.rank][card.suit]
     if img then
         if dimmed then setColor(0.78, 0.78, 0.78) else setColor(1, 1, 1) end
-        -- Uniform "cover" mapping: scale the art so it covers the card
-        -- rectangle exactly, centred; the stencil clips the excess. The
-        -- source PNGs have slightly different sizes/margins per rank (aces
-        -- 270x392, numerics 280x392, courts 539x784) — cover normalises
-        -- them all, so an ace renders at EXACTLY the same visible size and
-        -- geometry as every other card.
+        -- Uniform "contain" mapping: the art scales to fit INSIDE the card
+        -- (never cropped), centred on the ivory base. Sources differ per
+        -- rank (aces 270x392, numerics 280x392, courts 539x784); contain
+        -- normalises them without ever cutting a pip or an index. Aces
+        -- draw at 90% so the big "A" sits a touch smaller in the card.
         local iw, ih = img:getWidth(), img:getHeight()
-        local k  = math.max((CW + 4) / iw, (CH + 4) / ih)   -- +4: eat margins
+        local k = math.min(CW / iw, CH / ih)
+        if card.rank == 14 then k = k * 0.90 end
         local dx = x + (CW - iw * k) / 2
         local dy = y + (CH - ih * k) / 2
         love.graphics.draw(img, dx, dy, 0, k, k)
@@ -2611,9 +2653,10 @@ function R.drawResult(game, setupState, mx, my)
     if won then drawConfetti() end
 
     -- Central banner — modern look with shadow, gradient, accent ribbon and
-    -- a vector W badge above the headline. Sized to comfortably hold all of
-    -- the body text, the seed-input row and the action buttons.
-    local bw, bh = 680, 340
+    -- a vector W badge above the headline. 400 tall: the body text, the
+    -- deal-code row and the action buttons each get their own band with
+    -- clear air between them (340 made the last two rows collide).
+    local bw, bh = 680, 400
     local bx, by = C.SW/2 - bw/2, C.SH/2 - bh/2
     local maxTxt = bw - 60
     local accent = won and PAL.yellow or {0.85, 0.25, 0.25}
@@ -2652,7 +2695,10 @@ function R.drawResult(game, setupState, mx, my)
     local rowY = by + 234        -- shifted +10 to match the +10 body offset
     setColor(PAL.white)
     love.graphics.setFont(fonts.med)
-    love.graphics.print("Next Deal:", C.SW/2 - 180, rowY + 6)
+    do
+        local ndl = "Next Deal:"
+        love.graphics.print(ndl, C.SW/2 - 82 - fonts.med:getWidth(ndl) - 12, rowY + 9)
+    end
 
     local boxX, boxY, boxW, boxH = C.SW/2 - 70, rowY, 110, 44
     local focus = setupState.seedFocus
