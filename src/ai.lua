@@ -266,9 +266,178 @@ function AI.hardestPlay(hand, trick, trump, partner, played)
     return hardestFollow(legal, trick, trump, partner, hand, played)
 end
 
+-- ── Monte-Carlo rollout engine ─────────────────────────────────────────────
+-- The "reach" upgrade for the top difficulty levels. Instead of judging one
+-- trick at a time, the AI: (1) collects every card it can't see, (2) deals
+-- them randomly into the hidden hands many times over (each a plausible
+-- world consistent with the play so far), (3) plays each world out to the
+-- END of the hand with fast heuristics for all four seats, and (4) picks
+-- the candidate card that wins its side the most tricks on average.
+--
+-- Visibility is honest bridge knowledge: the AI sees its own hand, and the
+-- dummy once one is up (dummy is public). When the AI is playing the dummy's
+-- cards it also sees the declarer's hand — exactly what a human declarer
+-- knows. It never peeks at defenders' holdings.
+
+-- Fast per-seat heuristic used inside rollouts (medium strength for speed).
+local function rolloutChoose(hand, trick, trump, partner)
+    local ledSuit = (#trick > 0) and trick[1].card.suit or nil
+    local legal   = AI.legalCards(hand, ledSuit)
+    if ledSuit == nil then
+        return mediumLead(hand, trump) or legal[1]
+    end
+    return mediumFollow(legal, trick, trump, partner)
+end
+
+-- Play one hypothetical world to the end of the hand. `hands` is mutated.
+-- Returns tricks won by `mySide` ("NS"/"EW"), including the current trick.
+local function playOut(hands, trick, toAct, trump, mySide)
+    local sideOf = {"NS", "EW", "NS", "EW"}
+    local won    = 0
+    local t      = {}
+    for i, e in ipairs(trick) do t[i] = e end
+
+    while true do
+        -- Complete the current trick
+        while #t < 4 do
+            local hand = hands[toAct]
+            if #hand == 0 then return won end   -- safety: shouldn't happen
+            local card = rolloutChoose(hand, t, trump, C.PARTNER[toAct])
+            for i, c in ipairs(hand) do
+                if c == card then table.remove(hand, i) break end
+            end
+            t[#t+1] = {player = toAct, card = card}
+            toAct = C.NEXT[toAct]
+        end
+        local wi     = AI.trickWinnerIdx(t, trump)
+        local winner = t[wi].player
+        if sideOf[winner] == mySide then won = won + 1 end
+        if #hands[winner] == 0 then return won end   -- hand over
+        toAct = winner
+        t     = {}
+    end
+end
+
+-- Deal the unseen cards randomly into the hidden seats (counts must match
+-- how many cards each seat still holds). Returns a full hands[1..4] table of
+-- COPIES safe for the rollout to mutate.
+local function sampleWorld(state, player, unseen, hiddenSeats, rng)
+    local hands = {}
+    for p = 1, 4 do
+        hands[p] = {}
+        if not hiddenSeats[p] then
+            for i, c in ipairs(state.hands[p]) do hands[p][i] = c end
+        end
+    end
+    -- Shuffle the unseen pool (Fisher-Yates on a copy)
+    local pool = {}
+    for i, c in ipairs(unseen) do pool[i] = c end
+    for i = #pool, 2, -1 do
+        local j = rng:random(1, i)
+        pool[i], pool[j] = pool[j], pool[i]
+    end
+    -- Deal sequentially into hidden seats, respecting their true counts
+    local k = 1
+    for p = 1, 4 do
+        if hiddenSeats[p] then
+            for _ = 1, #state.hands[p] do
+                hands[p][#hands[p]+1] = pool[k]
+                k = k + 1
+            end
+        end
+    end
+    return hands
+end
+
+-- Full Monte-Carlo decision. `worlds` = hypothetical deals per candidate.
+local function monteCarloPlay(state, player, worlds)
+    local trick   = state.currentTrick
+    local trump   = state.trumpSuit
+    local ledSuit = (#trick > 0) and trick[1].card.suit or nil
+    local legal   = AI.legalCards(state.hands[player], ledSuit)
+    if #legal == 1 then return legal[1] end
+
+    local mySide  = (player == C.NORTH or player == C.SOUTH) and "NS" or "EW"
+
+    -- Which seats can this player legitimately see?
+    local visible = {[player] = true}
+    if state.dummy then
+        visible[state.dummy] = true                    -- dummy is public
+        if player == state.dummy and state.declarer then
+            visible[state.declarer] = true             -- declarer runs dummy
+        end
+    end
+    local hiddenSeats = {}
+    for p = 1, 4 do hiddenSeats[p] = not visible[p] end
+
+    -- Unseen pool = every card not in a visible hand and not already played
+    local seen = {}
+    for p = 1, 4 do
+        if visible[p] then
+            for _, c in ipairs(state.hands[p]) do
+                seen[c.suit * 100 + c.rank] = true
+            end
+        end
+    end
+    for _, e in ipairs(state.played) do
+        seen[e.card.suit * 100 + e.card.rank] = true
+    end
+    local unseen = {}
+    for suit = 1, 4 do
+        for rank = 2, 14 do
+            if not seen[suit * 100 + rank] then
+                unseen[#unseen+1] = {suit = suit, rank = rank}
+            end
+        end
+    end
+
+    -- Deterministic per-decision RNG: same table state → same choice, so
+    -- replaying a seed replays the whole hand identically.
+    local rngSeed = (state.seed or 1) * 131 + #state.played * 17 + player
+    local rng = love.math.newRandomGenerator(rngSeed)
+
+    local bestCard, bestScore = nil, -math.huge
+    for _, cand in ipairs(legal) do
+        local total = 0
+        for _ = 1, worlds do
+            local hands = sampleWorld(state, player, unseen, hiddenSeats, rng)
+            -- Play the candidate, then roll the rest of the hand out
+            local myHand = hands[player]
+            for i, c in ipairs(myHand) do
+                if c.suit == cand.suit and c.rank == cand.rank then
+                    table.remove(myHand, i) break
+                end
+            end
+            local t = {}
+            for i, e in ipairs(trick) do t[i] = e end
+            t[#t+1] = {player = player, card = cand}
+            total = total + playOut(hands, t, C.NEXT[player], trump, mySide)
+        end
+        local avg = total / worlds
+        -- Tie-break: save honours — prefer the cheaper card on equal tricks
+        if avg > bestScore + 0.001
+           or (math.abs(avg - bestScore) <= 0.001
+               and bestCard and cand.rank < bestCard.rank) then
+            bestScore, bestCard = avg, cand
+        end
+    end
+    return bestCard or legal[1]
+end
+
 -- ── Main entry point ───────────────────────────────────────────────────────
 
--- `state` fields used: hands, currentTrick, trumpSuit, played
+-- Rollout budget per candidate card, by difficulty. EASY..HARD keep their
+-- classic single-trick heuristics; HARDER and HARDEST look ahead to the end
+-- of the hand through sampled worlds (HARDEST samples 3x more). Budgets are
+-- sized from measured cost (~0.1ms/world on desktop): worst-case decisions
+-- stay well under the AI's own 0.75s think delay even on a phone.
+local MC_WORLDS = {
+    [C.HARDER]  = 40,
+    [C.HARDEST] = 120,
+}
+
+-- `state` fields used: hands, currentTrick, trumpSuit, played, dummy,
+-- declarer, seed
 function AI.chooseCard(state, player, difficulty)
     local hand    = state.hands[player]
     local trick   = state.currentTrick
@@ -282,11 +451,16 @@ function AI.chooseCard(state, player, difficulty)
         return AI.mediumPlay(hand, trick, trump, partner)
     elseif difficulty == C.HARD then
         return AI.hardPlay(hand, trick, trump, partner, state.played)
-    elseif difficulty == C.HARDER then
-        return AI.harderPlay(hand, trick, trump, partner, state.played)
-    else
-        return AI.hardestPlay(hand, trick, trump, partner, state.played)
     end
+
+    -- HARDER / HARDEST: full Monte-Carlo lookahead to the end of the hand.
+    local ok, card = pcall(monteCarloPlay, state, player, MC_WORLDS[difficulty] or 16)
+    if ok and card then return card end
+    -- Engine hiccup (should not happen): fall back to the classic heuristic
+    if difficulty == C.HARDER then
+        return AI.harderPlay(hand, trick, trump, partner, state.played)
+    end
+    return AI.hardestPlay(hand, trick, trump, partner, state.played)
 end
 
 -- ── Minibridge contract selection ──────────────────────────────────────────

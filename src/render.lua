@@ -109,11 +109,15 @@ local function pruneHoverState()
 end
 
 function R.load()
-    fonts.tiny   = love.graphics.newFont(11)
-    fonts.small  = love.graphics.newFont(13)
-    fonts.med    = love.graphics.newFont(16)
-    fonts.large  = love.graphics.newFont(22)
-    fonts.huge   = love.graphics.newFont(34)
+    -- Senior-friendly sizes: every tier is a notch up from V1 (11/13/16/22/34)
+    -- so labels read at arm's length on a phone without any layout blowing out
+    -- (checked against the tightest labels: "Hardest" in 70px diff buttons and
+    -- the 12-digit seed in its 190px box).
+    fonts.tiny   = love.graphics.newFont(12)
+    fonts.small  = love.graphics.newFont(15)
+    fonts.med    = love.graphics.newFont(17)
+    fonts.large  = love.graphics.newFont(24)
+    fonts.huge   = love.graphics.newFont(36)
     fonts.title  = love.graphics.newFont(64)
     fonts.cardRk = love.graphics.newFont(13)
     fonts.cardFace = love.graphics.newFont(34)
@@ -362,11 +366,19 @@ local function button(label, x, y, w, h, mx, my, col, hcol)
     fillCol[2] = math.max(0, fillCol[2] - 0.12 * pr)
     fillCol[3] = math.max(0, fillCol[3] - 0.12 * pr)
 
-    -- Drop shadow (deeper when hovered → button feels lifted; tighter when
-    -- pressed → button feels close to the desk).
-    setColor(0, 0, 0, 0.28 + 0.18 * p - 0.10 * pr)
+    -- Corner radius scales with button height so pills stay pills at any
+    -- size — the single biggest "modern vs 90s" tell on a flat-colour UI.
+    -- (Capped at 0.22h so the two-tone seam strip below always sits in the
+    -- straight-sided zone of the rounded rect.)
+    local rad = math.min(12, h * 0.22)
+
+    -- Soft two-layer drop shadow (deeper when hovered → button feels lifted;
+    -- tighter when pressed → button feels close to the desk).
     local shY = 3 + 4 * p - 3 * pr
-    love.graphics.rectangle("fill", x + 1, y + shY, w, h, 7)
+    setColor(0, 0, 0, 0.12 + 0.08 * p)
+    love.graphics.rectangle("fill", x - 1, y + shY + 3, w + 2, h + 2, rad + 2)
+    setColor(0, 0, 0, 0.26 + 0.16 * p - 0.10 * pr)
+    love.graphics.rectangle("fill", x + 1, y + shY, w, h, rad)
 
     -- Body — scaled around centre so the layout / hit-box stays exact -------
     love.graphics.push()
@@ -374,20 +386,30 @@ local function button(label, x, y, w, h, mx, my, col, hcol)
     love.graphics.scale(scale, scale)
     love.graphics.translate(-cx, -cy)
 
+    -- Vertical two-tone fill (lighter top half) instead of a flat slab.
+    -- Base is the darker tone; the light slab on top is a rounded rect whose
+    -- bottom corners are squared off with a same-colour strip so the seam is
+    -- a clean straight line (no corner notches).
     setColor(fillCol)
-    love.graphics.rectangle("fill", x, y, w, h, 7)
+    love.graphics.rectangle("fill", x, y, w, h, rad)
+    local lite = {math.min(1, fillCol[1] * 1.14 + 0.03),
+                  math.min(1, fillCol[2] * 1.14 + 0.03),
+                  math.min(1, fillCol[3] * 1.14 + 0.03)}
+    setColor(lite)
+    love.graphics.rectangle("fill", x, y, w, h * 0.45, rad)
+    love.graphics.rectangle("fill", x, y + h * 0.45 - rad, w, rad)
 
     -- Inner top highlight (subtle sheen) ------------------------------------
     setColor(1, 1, 1, 0.10 + 0.08 * p)
-    love.graphics.rectangle("fill", x + 2, y + 2, w - 4, math.max(2, h * 0.38), 6)
+    love.graphics.rectangle("fill", x + 2, y + 2, w - 4, math.max(2, h * 0.38), rad - 1)
 
     -- Animated glow outline (only visible while hovering) -------------------
     if p > 0.01 then
         love.graphics.setLineWidth(2)
         setColor(hcol[1], hcol[2], hcol[3], 0.65 * p)
-        love.graphics.rectangle("line", x - 1, y - 1, w + 2, h + 2, 8)
+        love.graphics.rectangle("line", x - 1, y - 1, w + 2, h + 2, rad + 1)
         setColor(hcol[1], hcol[2], hcol[3], 0.22 * p)
-        love.graphics.rectangle("line", x - 3, y - 3, w + 6, h + 6, 10)
+        love.graphics.rectangle("line", x - 3, y - 3, w + 6, h + 6, rad + 3)
         love.graphics.setLineWidth(1)
     end
 
@@ -756,7 +778,20 @@ local function handAnchor(player)
     end
 end
 
-local function drawTrick(trick)
+-- Winner spotlight: while the finished trick lingers on the table, the card
+-- that won it gets a soft pulsing gold halo so it's obvious — at a glance,
+-- with no reading — which card took the trick.
+local function drawWinnerHalo(x, y)
+    local pulse = 0.5 + 0.5 * math.sin(love.timer.getTime() * 4)
+    for i = 3, 1, -1 do
+        setColor(1.00, 0.86, 0.25, (0.10 + 0.05 * pulse) * i / 3)
+        love.graphics.rectangle("fill",
+            x - 4 - i * 3, y - 4 - i * 3,
+            CW + 8 + i * 6, CH + 8 + i * 6, CR + 4 + i * 3)
+    end
+end
+
+local function drawTrick(trick, winner)
     local dt   = love.timer.getDelta() or 0
     local seen = {}
     for _, entry in ipairs(trick) do
@@ -781,6 +816,7 @@ local function drawTrick(trick)
             drawCardFace(-CW/2, -CH/2, entry.card, nil, false)
             love.graphics.pop()
         else
+            if winner and entry.player == winner then drawWinnerHalo(x, y) end
             drawCardFace(x, y, entry.card, nil, false)
         end
     end
@@ -791,6 +827,60 @@ local function drawTrick(trick)
     prevTrickKeys = seen
 end
 
+-- ── Trick sweep ─────────────────────────────────────────────────────────────
+-- When the linger ends and the next trick starts, the four cards don't blink
+-- out — they sweep together toward the winner's seat, shrinking and fading,
+-- like a real player gathering the trick in. Purely visual overlay: by the
+-- time it plays, game state has already moved on to the next trick.
+local sweep = nil            -- {cards={{card,x,y}}, tx, ty, t}
+local lastSweptCount = 0
+local SWEEP_TIME = 0.45
+
+local function maybeStartSweep(game)
+    if game.trickCount == 0 then      -- new deal: reset tracking
+        lastSweptCount = 0
+        sweep = nil
+        return
+    end
+    -- The trick counter advanced and the table is back in PLAYING: the trick
+    -- that just lingered was gathered. Sweep it toward its winner.
+    if game.state == C.STATE_PLAYING
+       and game.trickCount > lastSweptCount
+       and game.lastTrick and game.lastWinner then
+        local cards = {}
+        for _, e in ipairs(game.lastTrick) do
+            local x, y = trickPos[e.player]()
+            cards[#cards+1] = {card = e.card, x = x, y = y}
+        end
+        local tx, ty = handAnchor(game.lastWinner)
+        sweep = {cards = cards, tx = tx, ty = ty, t = 0}
+    end
+    lastSweptCount = game.trickCount
+end
+
+local function drawSweep()
+    if not sweep then return end
+    local dt = love.timer.getDelta() or 0
+    sweep.t = sweep.t + dt / SWEEP_TIME
+    if sweep.t >= 1 then sweep = nil return end
+    local e     = easeOutCubic(sweep.t)
+    -- Shrink hard toward the end so the pile visually "tucks into" the
+    -- winner's hand. (No alpha fade: card faces are opaque by design — the
+    -- unified silhouette lays down solid card stock so the table can never
+    -- bleed through — so the gather reads through motion + scale instead.)
+    local scale = 1 - 0.72 * e * e
+    for _, c in ipairs(sweep.cards) do
+        local cx = (c.x + CW/2) + (sweep.tx - (c.x + CW/2)) * e
+        local cy = (c.y + CH/2) + (sweep.ty - (c.y + CH/2)) * e
+        love.graphics.push()
+        love.graphics.translate(cx, cy)
+        love.graphics.scale(scale, scale)
+        drawCardFace(-CW/2, -CH/2, c.card, nil, false)
+        love.graphics.pop()
+    end
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
 -- ── Runtime card scaling ────────────────────────────────────────────────────
 -- Re-scale every card-derived layout constant from a chosen base width. The
 -- draw functions all close over these module locals, so reassigning them here
@@ -799,15 +889,8 @@ end
 -- the trick spread follow from CW/CH, so this stays consistent with the fix
 -- that keeps decorations off the cards.
 function R.setCardScale(size)
-    -- Accept either a legacy 1..6 step index (old saves / old callers) or a
-    -- continuous card width in pixels from the V2 slider.
-    local w
-    if size and size <= #C.CARD_SIZE_W then
-        w = C.CARD_SIZE_W[math.max(1, math.floor(size + 0.5))]
-    else
-        w = math.max(C.CARD_W_MIN, math.min(C.CARD_W_MAX,
+    local w = math.max(C.CARD_W_MIN, math.min(C.CARD_W_MAX,
                 size or C.CARD_W_DEFAULT))
-    end
     CW = math.floor(w + 0.5)
     CH = math.floor(w * (134 / 96) + 0.5)
     CR = math.max(4,  math.floor(w * (8  / 96) + 0.5))
@@ -882,8 +965,11 @@ end
 -- ── Panels ─────────────────────────────────────────────────────────────────
 
 local function drawPanel(x, y, w, h)
+    -- Soft shadow + larger radius: matches the modernized button language.
+    setColor(0, 0, 0, 0.22)
+    love.graphics.rectangle("fill", x + 2, y + 4, w, h, 12)
     setColor(PAL.panel)
-    love.graphics.rectangle("fill", x, y, w, h, 9)
+    love.graphics.rectangle("fill", x, y, w, h, 12)
 end
 
 local function drawInfoPanel(game)
@@ -1745,30 +1831,54 @@ function R.drawGame(game, southSel, southHov, northSel, northHov, revealCard)
     local wHits = drawVertHand(game.hands[C.WEST], SIDE_X, C.SH/2,
                     -math.pi/2, wFace, wPlayable)
 
-    -- Trick in centre
+    -- Trick in centre. During the trick-end linger the winning card gets a
+    -- pulsing gold halo; when the linger ends the four cards sweep toward
+    -- the winner instead of blinking out.
+    maybeStartSweep(game)
     local trickToShow = game.currentTrick
+    local haloWinner  = nil
     if game.state == C.STATE_TRICK_END and game.lastTrick then
         trickToShow = game.lastTrick
+        haloWinner  = game.lastWinner
     end
-    if trickToShow then drawTrick(trickToShow) end
+    if trickToShow then drawTrick(trickToShow, haloWinner) end
+    drawSweep()
 
-    -- Trick-end banner
+    -- Trick-end banner: a modern pill, tinted by which SIDE took the trick
+    -- (green = your side, warm red = opponents) so the result reads at a
+    -- glance without reading the text.
     if game.state == C.STATE_TRICK_END and game.lastWinner then
-        setColor(PAL.dim)
-        love.graphics.rectangle("fill", C.SW/2-160, C.SH/2-22, 320, 44, 8)
-        setColor(PAL.yellow)
-        centredText(fonts.large,
-            C.PLAYER_NAMES[game.lastWinner] .. " wins trick " .. game.trickCount,
-            C.SW/2, C.SH/2)
+        local w   = game.lastWinner
+        local nsWon = (w == C.NORTH or w == C.SOUTH)
+        local tint  = nsWon and {0.10, 0.42, 0.18} or {0.48, 0.16, 0.12}
+        local msg   = C.PLAYER_NAMES[w] .. " wins trick " .. game.trickCount
+        love.graphics.setFont(fonts.large)
+        local tw    = fonts.large:getWidth(msg)
+        local bw, bh = tw + 64, 52
+        local bx, by = C.SW/2 - bw/2, C.SH/2 - bh/2
+        setColor(0, 0, 0, 0.30)
+        love.graphics.rectangle("fill", bx + 2, by + 5, bw, bh, bh/2)
+        setColor(tint[1], tint[2], tint[3], 0.92)
+        love.graphics.rectangle("fill", bx, by, bw, bh, bh/2)
+        setColor(1, 1, 1, 0.14)
+        love.graphics.rectangle("fill", bx + 3, by + 3, bw - 6, bh * 0.42, bh/2 - 3)
+        setColor(1, 1, 1, 0.98)
+        centredText(fonts.large, msg, C.SW/2, C.SH/2)
     end
 
-    -- Thinking indicator for AI
+    -- Thinking indicator for AI: the current player's NAME plus animated
+    -- dots, in a small pill — so it's always clear whose turn it is.
     if game.state == C.STATE_PLAYING then
         local cp = game.currentPlayer
         if cp and not isHumanTurn(cp) then
-            love.graphics.setFont(fonts.small)
-            setColor(PAL.text_dim)
-            love.graphics.print("Thinking...", C.SW/2 - 30, C.SH/2 - 8)
+            local dots = string.rep(".", 1 + math.floor(love.timer.getTime() * 2.5) % 3)
+            local msg  = C.PLAYER_NAMES[cp] .. " is thinking" .. dots
+            love.graphics.setFont(fonts.med)
+            local tw = fonts.med:getWidth(C.PLAYER_NAMES[cp] .. " is thinking...")
+            setColor(0, 0, 0, 0.40)
+            love.graphics.rectangle("fill", C.SW/2 - tw/2 - 18, C.SH/2 - 17, tw + 36, 34, 17)
+            setColor(0.92, 0.92, 0.88)
+            love.graphics.print(msg, C.SW/2 - tw/2, C.SH/2 - 10)
         end
     end
 
@@ -2088,7 +2198,7 @@ function R.drawResult(game, setupState, mx, my)
     if not game.resultSeedPrepared then
         game.resultSeedPrepared = true
         if setupState.random then
-            setupState.seedBuf = tostring(love.math.random(1, 99999))
+            setupState.seedBuf = tostring(love.math.random(1, C.SEED_MAX))
         else
             setupState.seedBuf = tostring(game.seed + 1)
         end
@@ -2265,7 +2375,7 @@ function R.drawResult(game, setupState, mx, my)
     love.graphics.setFont(fonts.med)
     love.graphics.print("Next Seed:", C.SW/2 - 170, rowY + 6)
 
-    local boxX, boxY, boxW, boxH = C.SW/2 - 70, rowY, 120, 36
+    local boxX, boxY, boxW, boxH = C.SW/2 - 70, rowY, 190, 36
     local focus = setupState.seedFocus
     setColor(focus and {0.20, 0.30, 0.50} or {0.12, 0.18, 0.30})
     love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 6)
@@ -2423,7 +2533,7 @@ function R.drawNewGameSetup(setupState, mx, my)
     love.graphics.print(seedLabel, C.SW/2 - 250, rowY + 6)
 
     -- Text box for the seed (typed input)
-    local boxX, boxY, boxW, boxH = C.SW/2 - 130, rowY, 120, 36
+    local boxX, boxY, boxW, boxH = C.SW/2 - 130, rowY, 190, 36
     local focus = setupState.seedFocus
     setColor(focus and {0.20, 0.30, 0.50} or {0.12, 0.18, 0.30})
     love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 6)

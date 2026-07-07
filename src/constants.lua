@@ -99,20 +99,22 @@ C.CARD_H       = 134
 C.CARD_RADIUS  = 8
 C.CARD_OVERLAP = 30   -- horizontal/vertical overlap in a fan
 
--- Player-selectable card sizes. Each entry is a base card WIDTH; render.lua's
--- R.setCardScale() derives height (~70:98 aspect), corner radius, fan overlap
--- and the centre-trick offset from it. The top end is capped so all four
--- hands plus the centre trick still fit inside the 1280x800 virtual table.
-C.CARD_SIZE_NAMES   = {"Small", "Medium", "Regular", "Big", "Bigger", "Biggest"}
-C.CARD_SIZE_W       = {72, 84, 96, 108, 120, 128}
-C.CARD_SIZE_DEFAULT = 3   -- "Regular" (matches C.CARD_W above)
-
--- Continuous card-size slider range (V2). The slider replaces the six-step
--- cycler: any width in [MIN, MAX] is valid; layout maths in R.setCardScale
--- guarantee no hand/trick collisions across the whole range. Default sits
--- above the old "Regular" because real players found the cards too small.
+-- Continuous card-size slider range (V2). Any width in [MIN, MAX] is valid;
+-- layout maths in R.setCardScale guarantee no hand/trick collisions across
+-- the whole range. MAX is the true geometric ceiling of the 1280x800 table:
+-- at w=132 the card height is 184, the trick offset floors at 10, and the
+-- gap between a played card and the nearest hand is exactly 4px — the
+-- largest cards that can NEVER touch anything. Default opens at that max
+-- (phone-first: the game is played mostly on a Galaxy screen).
 C.CARD_W_MIN     = 72
-C.CARD_W_MAX     = 128
-C.CARD_W_DEFAULT = 108
+C.CARD_W_MAX     = 132
+C.CARD_W_DEFAULT = 132
+
+-- Seed space. LÖVE's RandomGenerator takes any double-safe integer, so the
+-- practical limit is what fits the input box and stays exact in a Lua
+-- number: 12 digits (a trillion distinct deals — every hand your family
+-- ever plays can have its own number).
+C.SEED_MAX    = 999999999999
+C.SEED_DIGITS = 12
 
 return C

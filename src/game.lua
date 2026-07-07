@@ -344,6 +344,9 @@ function Game:_playCard(player, card)
     Deck.removeCard(self.hands[player], card)
     self.currentTrick[#self.currentTrick+1] = {player=player, card=card}
     self.played[#self.played+1] = {player=player, card=card}
+    -- Soft card-on-felt tick for every play (deal uses a faster 2.6 pitch;
+    -- this slower one reads as a deliberate "placing" sound).
+    S.playCardGive(1.15)
 
     if #self.currentTrick == 4 then
         self:_completeTrick()

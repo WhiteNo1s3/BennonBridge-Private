@@ -50,6 +50,13 @@ local LONGPRESS_TIME = 0.40
 
 -- ── Helpers ────────────────────────────────────────────────────────────────
 
+-- One fresh seed, full range. Every "random seed" in the game comes through
+-- here so the whole seed space (1 .. C.SEED_MAX, a trillion deals) is in
+-- play, not the old 99,999.
+local function randomSeed()
+    return love.math.random(1, C.SEED_MAX)
+end
+
 local function hitTest(hits, x, y)
     for i = #hits, 1, -1 do        -- reverse: topmost wins
         local h = hits[i]
@@ -89,7 +96,7 @@ local function dealFromSetup()
     R.setBackTheme(setupState.backTheme)
     R.setMood(setupState)
     -- Parse the seed buffer; empty = random
-    local seed = tonumber(setupState.seedBuf) or love.math.random(1, 99999)
+    local seed = tonumber(setupState.seedBuf) or randomSeed()
     if seed < 1 then seed = 1 end
     setupState.seed    = seed
     setupState.seedBuf = tostring(seed)
@@ -169,7 +176,7 @@ function love.update(dt)
                         nextSeed = game.matchSeeds[game.matchBoard]
                     else
                         if setupState.random then
-                            nextSeed = love.math.random(1, 99999)
+                            nextSeed = randomSeed()
                         else
                             nextSeed = game.seed + 1
                         end
@@ -182,7 +189,7 @@ function love.update(dt)
             else
                 -- Single match auto-advance
                 if setupState.random then
-                    setupState.seedBuf = tostring(love.math.random(1, 99999))
+                    setupState.seedBuf = tostring(randomSeed())
                 else
                     setupState.seedBuf = tostring(game.seed + 1)
                 end
@@ -340,8 +347,8 @@ end
 
 function love.textinput(text)
     if (game.state == C.STATE_NEWGAME or game.state == C.STATE_RESULT) and setupState.seedFocus then
-        -- Allow digits only, cap at 7 chars (~9.9 million seeds)
-        if text:match("%d") and #setupState.seedBuf < 7 then
+        -- Digits only, up to C.SEED_DIGITS (a trillion distinct deals)
+        if text:match("%d") and #setupState.seedBuf < C.SEED_DIGITS then
             setupState.seedBuf = setupState.seedBuf .. text
         end
     end
@@ -435,7 +442,7 @@ function onSetupClick(x, y)
 
     if h.type == "deal" then
         if setupState.random then
-            setupState.seedBuf = tostring(love.math.random(1, 99999))
+            setupState.seedBuf = tostring(randomSeed())
         end
         dealFromSetup()
 
@@ -443,7 +450,7 @@ function onSetupClick(x, y)
         setupState.seedFocus = true
 
     elseif h.type == "random_now" then
-        setupState.seedBuf = tostring(love.math.random(1, 99999))
+        setupState.seedBuf = tostring(randomSeed())
 
     elseif h.type == "random_toggle" then
         setupState.random = not setupState.random
@@ -642,7 +649,7 @@ function onResultClick(x, y)
             nextSeed = game.matchSeeds[game.matchBoard]
         else
             if setupState.random then
-                nextSeed = love.math.random(1, 99999)
+                nextSeed = randomSeed()
             else
                 nextSeed = game.seed + 1
             end
@@ -657,7 +664,7 @@ function onResultClick(x, y)
     if h.type == "seedbox" then
         setupState.seedFocus = true
     elseif h.type == "random_now" then
-        setupState.seedBuf = tostring(love.math.random(1, 99999))
+        setupState.seedBuf = tostring(randomSeed())
     elseif h.type == "replay" then
         setupState.seedBuf = tostring(game.seed)
         dealFromSetup()
@@ -691,7 +698,7 @@ function onResultClick(x, y)
         game.showMatchDetailsTable = false
         local newStartSeed
         if setupState.random then
-            newStartSeed = love.math.random(1, 99999)
+            newStartSeed = randomSeed()
         else
             newStartSeed = (game.matchStartSeed or game.seed or 1) + 7
         end

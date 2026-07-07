@@ -17,6 +17,7 @@ Engine stays LOVE2D (must keep standalone .exe like Balatro + .apk builds). Driv
 - Full SVG sets in C:\Users\Ben\Documents\bennon-cards\svg + tools (build_facecards.py, rasterize_cards.py).
 - Make 2-3 numeric versions: denser pip arrangements; a 3D treatment (bevel/shadow on pips + card).
 - Ace: bold and 3D, "proud," not a plain single pip.
+- DONE 2026-06-28: generated two full numeric sets (2-10 + proud Ace, all suits) -> bennon-cards/numerics_dense/ and numerics_dense3d/ (committed to BennonCards). Faces (J/Q/K) still come from Ben's illustrated set when assembling full themed decks.
 
 ## 4. More card backs
 - Loader auto-discovers any PNG in assets/card_backs + assets/card_backs_thematic, sorted by leading number. Purely additive. Existing 9 stay.
