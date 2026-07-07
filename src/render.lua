@@ -325,7 +325,7 @@ local function lerpColor(c1, c2, t)
     }
 end
 
-local function button(label, x, y, w, h, mx, my, col, hcol)
+local function button(label, x, y, w, h, mx, my, col, hcol, font)
     local hov = mx >= x and mx <= x+w and my >= y and my <= y+h
 
     -- Advance the per-button hover progress towards its target.
@@ -386,22 +386,16 @@ local function button(label, x, y, w, h, mx, my, col, hcol)
     love.graphics.scale(scale, scale)
     love.graphics.translate(-cx, -cy)
 
-    -- Vertical two-tone fill (lighter top half) instead of a flat slab.
-    -- Base is the darker tone; the light slab on top is a rounded rect whose
-    -- bottom corners are squared off with a same-colour strip so the seam is
-    -- a clean straight line (no corner notches).
+    -- Flat modern fill — depth comes from the soft double shadow and the
+    -- faint top sheen below, not from gradients (glossy bands read dated,
+    -- especially on large buttons).
     setColor(fillCol)
     love.graphics.rectangle("fill", x, y, w, h, rad)
-    local lite = {math.min(1, fillCol[1] * 1.14 + 0.03),
-                  math.min(1, fillCol[2] * 1.14 + 0.03),
-                  math.min(1, fillCol[3] * 1.14 + 0.03)}
-    setColor(lite)
-    love.graphics.rectangle("fill", x, y, w, h * 0.45, rad)
-    love.graphics.rectangle("fill", x, y + h * 0.45 - rad, w, rad)
 
-    -- Inner top highlight (subtle sheen) ------------------------------------
-    setColor(1, 1, 1, 0.10 + 0.08 * p)
-    love.graphics.rectangle("fill", x + 2, y + 2, w - 4, math.max(2, h * 0.38), rad - 1)
+    -- Inner top highlight: a slim hairline at the very top edge — enough to
+    -- catch the eye as depth, never a visible gloss band.
+    setColor(1, 1, 1, 0.06 + 0.06 * p)
+    love.graphics.rectangle("fill", x + 3, y + 2, w - 6, math.min(10, h * 0.18), rad - 2)
 
     -- Animated glow outline (only visible while hovering) -------------------
     if p > 0.01 then
@@ -415,7 +409,7 @@ local function button(label, x, y, w, h, mx, my, col, hcol)
 
     -- Label (slight brightness boost on hover) ------------------------------
     setColor(1, 1, 1, math.min(1, 0.92 + 0.08 * p))
-    centredText(fonts.med, label, cx, cy)
+    centredText(font or fonts.med, label, cx, cy)
 
     love.graphics.pop()
     setColor(1, 1, 1, 1)
@@ -923,9 +917,8 @@ end
 -- collision-free — the user can never push cards into the trick area.
 local function drawCardSlider(x, y, trackW, mx, my, hits)
     setColor(PAL.text_dim)
-    love.graphics.setFont(fonts.tiny)
-    love.graphics.print("Card size", x, y - 2)
-    love.graphics.print(tostring(CW) .. " px", x + trackW - 36, y - 2)
+    love.graphics.setFont(fonts.small)
+    love.graphics.print("Card Size", x, y - 4)
 
     local ty = y + 20            -- track centreline
     setColor(0, 0, 0, 0.45)
@@ -1505,8 +1498,9 @@ end
 -- action buttons.
 local function drawBiddingBox(game, x, y, mx, my, selectedBid, hits)
     local a       = game.auction
-    local cellW   = 56
-    local cellH   = 36
+    -- 64x44 cells: every bid is a full-size touch target on a phone.
+    local cellW   = 64
+    local cellH   = 44
     local gap     = 4
     local cols    = 5
     local rows    = 7
@@ -1521,7 +1515,7 @@ local function drawBiddingBox(game, x, y, mx, my, selectedBid, hits)
     love.graphics.setLineWidth(1)
 
     setColor(PAL.yellow)
-    centredText(fonts.med, "BIDDING BOX", x + boxW/2, y + 6)
+    centredText(fonts.med, "Your Turn — Pick Your Bid", x + boxW/2, y + 6)
 
     -- Column suit headers
     love.graphics.setFont(fonts.small)
@@ -1602,19 +1596,19 @@ local function drawBiddingBox(game, x, y, mx, my, selectedBid, hits)
             end
             love.graphics.setLineWidth(1)
 
-            -- Label
+            -- Label (scaled up with the bigger cells)
             local scol = (denom == C.BID_NT) and {0.15, 0.15, 0.15}
                           or (C.SUIT_IS_RED[denom] and PAL.red_suit or PAL.black_suit)
             if not legal then scol = {0.45, 0.45, 0.45} end
             if sel then scol = PAL.yellow end
             setColor(scol)
-            love.graphics.setFont(fonts.med)
-            love.graphics.print(tostring(level), cx + 7, cy + 8)
+            love.graphics.setFont(fonts.large)
+            love.graphics.print(tostring(level), cx + 9, cy + 7)
             if denom == C.BID_NT then
-                love.graphics.setFont(fonts.small)
-                love.graphics.print("NT", cx + 22, cy + 12)
+                love.graphics.setFont(fonts.med)
+                love.graphics.print("NT", cx + 28, cy + 13)
             else
-                drawPip(denom, cx + cellW - 13, cy + cellH/2, 6)
+                drawPip(denom, cx + cellW - 16, cy + cellH/2, 8)
             end
 
             hits[#hits+1] = {
@@ -1626,33 +1620,12 @@ local function drawBiddingBox(game, x, y, mx, my, selectedBid, hits)
     end
 end
 
--- Pass / Double / Redouble / Confirm action row
-local function drawAuctionActionRow(game, x, y, mx, my, selectedBid, hits)
-    local btnW, btnH, gap = 90, 40, 8
-    local cur = game.auction.currentBidder
-
-    -- Pass
-    local passLegal = game:isLegalCall({type = C.CALL_PASS})
-    local passCol   = passLegal and PAL.btn_blue or {0.18, 0.18, 0.20}
-    local _, bx, by, bw, bh = button("Pass", x, y, btnW, btnH, mx, my,
-                                      passCol, PAL.btn_hover)
-    hits[#hits+1] = {type = "pass", x=bx, y=by, w=bw, h=bh}
-
-    -- Double
-    local dblLegal = game:isLegalCall({type = C.CALL_DOUBLE})
-    local dblCol   = dblLegal and {0.65, 0.15, 0.15} or {0.20, 0.20, 0.20}
-    local dblHov   = dblLegal and {0.82, 0.18, 0.18} or {0.22, 0.22, 0.22}
-    local _, x2, y2, w2, h2 = button("X (Double)", x + (btnW+gap), y, btnW+15, btnH,
-                                      mx, my, dblCol, dblHov)
-    hits[#hits+1] = {type = "double", x=x2, y=y2, w=w2, h=h2}
-
-    -- Redouble
-    local rdblLegal = game:isLegalCall({type = C.CALL_REDOUBLE})
-    local rdblCol   = rdblLegal and {0.55, 0.10, 0.55} or {0.20, 0.20, 0.20}
-    local rdblHov   = rdblLegal and {0.72, 0.15, 0.72} or {0.22, 0.22, 0.22}
-    local _, x3, y3, w3, h3 = button("XX (Redouble)", x + 2*(btnW+gap) + 15, y,
-                                      btnW + 30, btnH, mx, my, rdblCol, rdblHov)
-    hits[#hits+1] = {type = "redouble", x=x3, y=y3, w=w3, h=h3}
+-- Pass / Double / Redouble / Confirm — a vertical stack beside the bidding
+-- grid, so each button can be full touch size without fighting the grid for
+-- horizontal room. Confirm sits on top (primary action once a bid is picked).
+local function drawAuctionActionStack(game, x, y, mx, my, selectedBid, hits)
+    -- 160 wide keeps the stack clear of the East hand even at max card size.
+    local btnW, btnH, gap = 160, 54, 12
 
     -- Confirm (only enabled when a bid is selected)
     local cnfCol = selectedBid and PAL.btn_green or {0.20, 0.20, 0.20}
@@ -1662,9 +1635,32 @@ local function drawAuctionActionRow(game, x, y, mx, my, selectedBid, hits)
             selectedBid.level,
             (selectedBid.denom == C.BID_NT) and "NT" or C.DENOM_SHORT[selectedBid.denom])
         or  "Bid >"
-    local _, x4, y4, w4, h4 = button(cnfLbl, x + 3*(btnW+gap) + 45, y, btnW + 40, btnH,
-                                      mx, my, cnfCol, cnfHov)
+    local _, x4, y4, w4, h4 = button(cnfLbl, x, y, btnW, btnH,
+                                      mx, my, cnfCol, cnfHov, fonts.large)
     hits[#hits+1] = {type = "confirm", x=x4, y=y4, w=w4, h=h4}
+
+    -- Pass
+    local passLegal = game:isLegalCall({type = C.CALL_PASS})
+    local passCol   = passLegal and PAL.btn_blue or {0.18, 0.18, 0.20}
+    local _, bx, by, bw, bh = button("Pass", x, y + (btnH+gap), btnW, btnH, mx, my,
+                                      passCol, PAL.btn_hover, fonts.large)
+    hits[#hits+1] = {type = "pass", x=bx, y=by, w=bw, h=bh}
+
+    -- Double
+    local dblLegal = game:isLegalCall({type = C.CALL_DOUBLE})
+    local dblCol   = dblLegal and {0.65, 0.15, 0.15} or {0.20, 0.20, 0.20}
+    local dblHov   = dblLegal and {0.82, 0.18, 0.18} or {0.22, 0.22, 0.22}
+    local _, x2, y2, w2, h2 = button("Double (X)", x, y + 2*(btnH+gap), btnW, btnH,
+                                      mx, my, dblCol, dblHov)
+    hits[#hits+1] = {type = "double", x=x2, y=y2, w=w2, h=h2}
+
+    -- Redouble
+    local rdblLegal = game:isLegalCall({type = C.CALL_REDOUBLE})
+    local rdblCol   = rdblLegal and {0.55, 0.10, 0.55} or {0.20, 0.20, 0.20}
+    local rdblHov   = rdblLegal and {0.72, 0.15, 0.72} or {0.22, 0.22, 0.22}
+    local _, x3, y3, w3, h3 = button("Redouble (XX)", x, y + 3*(btnH+gap), btnW, btnH,
+                                      mx, my, rdblCol, rdblHov)
+    hits[#hits+1] = {type = "redouble", x=x3, y=y3, w=w3, h=h3}
 end
 
 function R.drawAuction(game, mx, my, selectedBid)
@@ -1719,12 +1715,10 @@ function R.drawAuction(game, mx, my, selectedBid)
     local humanTurn = (a.currentBidder == C.SOUTH) and not game.autoSouth and not a.finished
 
     if humanTurn then
+        -- Grid: 5*64 + 6*4 = 344 wide, ends x=899. Action stack to its right
+        -- at x=923 (still clear of the East hand, which starts ~x=1088).
         drawBiddingBox(game, boxX, boxY, mx, my, selectedBid, hits)
-        drawAuctionActionRow(game, boxX, boxY + 360, mx, my, selectedBid, hits)
-
-        setColor(PAL.yellow)
-        centredText(fonts.med, "Your turn — choose a bid or Pass",
-                    boxX + 280, boxY + 415)
+        drawAuctionActionStack(game, boxX + 360, boxY + 20, mx, my, selectedBid, hits)
     else
         -- Status panel during AI calls
         local pw, ph = 590, 320
@@ -1901,11 +1895,11 @@ function R.drawGameOptions(optsOpen, mx, my)
     local hits = {}
 
     local _, gx, gy, gw, gh = button(optsOpen and "Close" or "Options",
-        8, 90, 110, 30, mx, my, PAL.btn_blue, PAL.btn_hover)
+        8, 92, 130, 44, mx, my, PAL.btn_blue, PAL.btn_hover)
     hits[#hits+1] = {type = "optsgear", x = gx, y = gy, w = gw, h = gh}
 
     if optsOpen then
-        local px, py, pw, ph = 8, 128, 330, 102
+        local px, py, pw, ph = 8, 144, 330, 102
         setColor(0, 0, 0, 0.4)
         love.graphics.rectangle("fill", px + 3, py + 4, pw, ph, 10)
         setColor(0x2C/255, 0x30/255, 0x3A/255, 0.97)
@@ -2369,11 +2363,11 @@ function R.drawResult(game, setupState, mx, my)
                       sessionLabel, game.sessionScore[1], game.sessionScore[2]),
         C.SW/2, by + 204, maxTxt)
 
-    -- ── Seed input row (for Next Hand) ──
+    -- ── Deal-number row (for Next Hand) ──
     local rowY = by + 234        -- shifted +10 to match the +10 body offset
     setColor(PAL.white)
     love.graphics.setFont(fonts.med)
-    love.graphics.print("Next Seed:", C.SW/2 - 170, rowY + 6)
+    love.graphics.print("Next Deal:", C.SW/2 - 180, rowY + 6)
 
     local boxX, boxY, boxW, boxH = C.SW/2 - 70, rowY, 190, 36
     local focus = setupState.seedFocus
@@ -2399,19 +2393,20 @@ function R.drawResult(game, setupState, mx, my)
     local _, rx, ry, rw, rh = button("Randomize", btnRandX, rowY, 130, boxH, mx, my, PAL.btn_green, PAL.btn_green_h)
     hits[#hits+1] = {type="random_now", x=rx, y=ry, w=rw, h=rh}
 
-    -- Buttons (anchored to bottom of the banner)
-    local btnY = by + bh - 60
-    local _, r1x, r1y, r1w, r1h = button("Replay Hand", C.SW/2 - 260, btnY, 160, 50, mx, my, PAL.btn_blue, PAL.btn_hover)
+    -- Buttons (anchored to bottom of the banner) — full-size touch targets,
+    -- with Next Hand (the one grandma presses every time) in the middle.
+    local btnY = by + bh - 72
+    local _, r1x, r1y, r1w, r1h = button("Replay Hand", C.SW/2 - 315, btnY, 200, 62, mx, my, PAL.btn_blue, PAL.btn_hover)
     hits[#hits+1] = {type="replay", x=r1x, y=r1y, w=r1w, h=r1h}
-    
+
     local nextText = game.matchMode == "7board" and (game.matchBoard >= 7 and "MATCH SUMMARY" or "Next Board ("..tostring(game.matchBoard+1).."/7)") or "Next Hand"
     local nextCol = {0.15, 0.55, 0.22}
     local nextHov = {0.22, 0.78, 0.30}
-    
-    local _, n1x, n1y, n1w, n1h = button(nextText, C.SW/2 - 80, btnY, 160, 50, mx, my, nextCol, nextHov)
+
+    local _, n1x, n1y, n1w, n1h = button(nextText, C.SW/2 - 100, btnY, 200, 62, mx, my, nextCol, nextHov)
     hits[#hits+1] = {type="next_hand", x=n1x, y=n1y, w=n1w, h=n1h}
-    
-    local _, m1x, m1y, m1w, m1h = button("Main Menu", C.SW/2 + 100, btnY, 160, 50, mx, my, PAL.btn_blue, PAL.btn_hover)
+
+    local _, m1x, m1y, m1w, m1h = button("Main Menu", C.SW/2 + 115, btnY, 200, 62, mx, my, PAL.btn_blue, PAL.btn_hover)
     hits[#hits+1] = {type="menu", x=m1x, y=m1y, w=m1w, h=m1h}
 
     -- Confetti above all on win for the wow effect
@@ -2456,29 +2451,31 @@ function R.drawMainMenu(setupState, mx, my)
     local hits = {}
     local cx = C.SW/2
 
-    local _, x,y,w,h = button("NEW GAME", cx - 130, 310, 260, 60, mx, my,
-                              {0.15, 0.55, 0.22}, {0.22, 0.78, 0.30})
+    -- Menu buttons are deliberately HUGE: on a 6.8" phone in landscape a
+    -- 92-virtual-px button is ~9mm tall — comfortably tappable and readable
+    -- at arm's length. The menu has acres of empty felt; spend it.
+    local _, x,y,w,h = button("NEW GAME", cx - 200, 280, 400, 92, mx, my,
+                              {0.15, 0.55, 0.22}, {0.22, 0.78, 0.30}, fonts.large)
     hits[#hits+1] = {type="newgame", x=x,y=y,w=w,h=h}
 
-    -- Mode toggle (replaces the old dead "Options" button): play South
-    -- yourself, or sit back and watch the AI take your seat. Switching TO
-    -- spectator asks for confirmation so a touchscreen mis-tap can't put
-    -- you on the bench by accident.
+    -- Mode toggle: play South yourself, or sit back and watch the AI take
+    -- your seat. Switching TO spectator asks for confirmation so a
+    -- touchscreen mis-tap can't put you on the bench by accident.
     local spect = setupState and setupState.autoSouth
     local mCol  = spect and {0.70, 0.40, 0.10} or PAL.btn_blue
     local mHCol = spect and {0.85, 0.50, 0.18} or PAL.btn_hover
     local _, ox,oy,ow,oh = button(
-        spect and "Mode: Spectator (CPU plays South)" or "Mode: You play South",
-        cx - 160, 390, 320, 48, mx, my, mCol, mHCol)
+        spect and "Spectator Mode: On" or "You Play South",
+        cx - 200, 396, 400, 64, mx, my, mCol, mHCol)
     hits[#hits+1] = {type="mode", x=ox,y=oy,w=ow,h=oh}
 
-    local _, x2,y2,w2,h2 = button("Quit", cx - 80, 460, 160, 44, mx, my,
+    local _, x2,y2,w2,h2 = button("Quit", cx - 120, 484, 240, 56, mx, my,
                                   PAL.btn_blue, PAL.btn_hover)
     hits[#hits+1] = {type="quit", x=x2,y=y2,w=w2,h=h2}
 
     setColor(PAL.text_dim)
-    centredText(fonts.tiny, "You play as South (bottom).  Partners: North-South vs East-West.", C.SW/2, C.SH - 60)
-    centredText(fonts.tiny, "Highest-HCP partnership declares.  Window is resizable.",            C.SW/2, C.SH - 44)
+    centredText(fonts.small, "You play South, at the bottom of the table.", C.SW/2, C.SH - 64)
+    centredText(fonts.small, "North is your partner — together against East and West.", C.SW/2, C.SH - 42)
 
     -- Spectator confirmation dialog: floats above the menu, and while open
     -- it owns ALL the hits so nothing behind it can be pressed by mistake.
@@ -2519,169 +2516,160 @@ function R.drawNewGameSetup(setupState, mx, my)
     drawMoodBackdrop(560, 380)
 
     setColor(PAL.yellow)
-    centredText(fonts.huge, "New Game", C.SW/2, 78)
+    centredText(fonts.huge, "New Game", C.SW/2, 66)
     setColor(PAL.text_dim)
-    centredText(fonts.small, "Choose a hand seed and your opponents' difficulty.", C.SW/2, 122)
+    centredText(fonts.med, "Choose your deal and your opponents.", C.SW/2, 112)
 
     local hits = {}
 
-    -- ── Seed input row ──
+    -- Every control on this screen is at least 44 virtual px tall — the
+    -- classic minimum touch target, which on a phone in landscape lands
+    -- around 8-9 real millimetres. Nothing here should need reading glasses
+    -- or a stylus.
+
+    -- ── Deal-number row ──
     setColor(PAL.white)
     love.graphics.setFont(fonts.med)
-    local seedLabel = "Hand seed:"
-    local rowY = 160
-    love.graphics.print(seedLabel, C.SW/2 - 250, rowY + 6)
+    local rowY = 148
+    love.graphics.print("Deal Number", C.SW/2 - 356, rowY + 11)
 
-    -- Text box for the seed (typed input)
-    local boxX, boxY, boxW, boxH = C.SW/2 - 130, rowY, 190, 36
+    -- Typed deal-number box
+    local boxX, boxY, boxW, boxH = C.SW/2 - 210, rowY, 190, 44
     local focus = setupState.seedFocus
     setColor(focus and {0.20, 0.30, 0.50} or {0.12, 0.18, 0.30})
-    love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 6)
+    love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 8)
     setColor(focus and PAL.yellow or {0.4, 0.5, 0.7})
     love.graphics.setLineWidth(focus and 2 or 1)
-    love.graphics.rectangle("line", boxX, boxY, boxW, boxH, 6)
+    love.graphics.rectangle("line", boxX, boxY, boxW, boxH, 8)
     love.graphics.setLineWidth(1)
     setColor(PAL.white)
     love.graphics.setFont(fonts.large)
     local txt = setupState.seedBuf
     if txt == "" then setColor(PAL.text_dim); txt = "..." end
-    love.graphics.print(txt, boxX + 10, boxY + 4)
+    love.graphics.print(txt, boxX + 10, boxY + 7)
     -- Caret
     if focus and (math.floor(love.timer.getTime()*2) % 2 == 0) then
         setColor(PAL.yellow)
         local cw = (fonts.large:getWidth(setupState.seedBuf or ""))
-        love.graphics.rectangle("fill", boxX + 10 + cw + 2, boxY + 8, 2, boxH - 16)
+        love.graphics.rectangle("fill", boxX + 10 + cw + 2, boxY + 9, 2, boxH - 18)
     end
     hits[#hits+1] = {type="seedbox", x=boxX, y=boxY, w=boxW, h=boxH}
 
-    -- Dedicated Randomize Seed Now button
-    local btnRandX = boxX + boxW + 12
-    local _, rx, ry, rw, rh = button("Randomize", btnRandX, rowY, 130, boxH, mx, my, PAL.btn_green, PAL.btn_green_h)
+    -- Standalone "roll a new number" button — does nothing but that.
+    local _, rx, ry, rw, rh = button("Randomize", C.SW/2 - 8, rowY, 150, boxH,
+        mx, my, PAL.btn_green, PAL.btn_green_h)
     hits[#hits+1] = {type="random_now", x=rx, y=ry, w=rw, h=rh}
 
-    -- Auto-Randomize Next Toggle
-    local togX = btnRandX + rw + 12
+    -- Sticky mode: with Random Deals on, every next hand rolls a fresh
+    -- number by itself; off, deals advance in order (1, 2, 3...).
     local randCol  = setupState.random and PAL.btn_green or PAL.btn_blue
     local randHCol = setupState.random and PAL.btn_green_h or PAL.btn_hover
     local _, tx, ty, tw, th = button(
-        setupState.random and "Auto-Next: RANDOM" or "Auto-Next: +1",
-        togX, rowY, 160, boxH, mx, my, randCol, randHCol)
+        setupState.random and "Random Deals: On" or "Random Deals: Off",
+        C.SW/2 + 154, rowY, 200, boxH, mx, my, randCol, randHCol)
     hits[#hits+1] = {type="random_toggle", x=tx, y=ty, w=tw, h=th}
 
-    -- ── Match Mode Toggle ──
-    local matchRowY = rowY + boxH + 20
+    -- ── Format row ──
+    local matchRowY = rowY + boxH + 14
     local isMatch = setupState.matchMode == "7board"
     local matchCol  = isMatch and {0.6, 0.2, 0.6} or PAL.btn_blue
     local matchHCol = isMatch and {0.7, 0.3, 0.7} or PAL.btn_hover
     local _, mmx,mmy,mmw,mmh = button(
-        isMatch and "Match Mode: 7 Boards" or "Match Mode: Single Game",
-        C.SW/2 - 190, matchRowY, 380, 32, mx, my, matchCol, matchHCol)
+        isMatch and "Format: 7-Board Match" or "Format: Single Hands",
+        C.SW/2 - 190, matchRowY, 380, 44, mx, my, matchCol, matchHCol)
     hits[#hits+1] = {type="match_toggle", x=mmx, y=mmy, w=mmw, h=mmh}
 
-    -- (Auto-play South / spectator mode now lives in the MAIN MENU as the
-    -- "Mode" button, with its own confirmation dialog.)
-
     -- ── Difficulty rows ──
-    local diffTitleY = matchRowY + 44
+    local diffTitleY = matchRowY + 44 + 18
     setColor(PAL.white)
     love.graphics.setFont(fonts.med)
-    centredText(fonts.med, "AI Difficulty", C.SW/2, diffTitleY)
+    centredText(fonts.med, "Opponent Difficulty", C.SW/2, diffTitleY)
 
     local aiPlayers = {C.NORTH, C.EAST, C.WEST}
+    local diffRow0  = diffTitleY + 16
     for row, p in ipairs(aiPlayers) do
-        local ry = diffTitleY + 20 + (row-1) * 44
+        local ry = diffRow0 + (row-1) * 54
         setColor(PAL.text_dim)
-        love.graphics.setFont(fonts.small)
-        love.graphics.print(C.PLAYER_NAMES[p], C.SW/2 - 260, ry + 10)
+        love.graphics.setFont(fonts.med)
+        love.graphics.print(C.PLAYER_NAMES[p], C.SW/2 - 330, ry + 11)
 
         for d = 1, 5 do
-            local bx    = C.SW/2 - 190 + (d-1) * 76
+            local bx    = C.SW/2 - 240 + (d-1) * 92
             local active= setupState.difficulty[p] == d
             local acol  = active and PAL.btn_green   or PAL.btn_blue
             local ahcol = active and PAL.btn_green_h or PAL.btn_hover
-            local _, x,y,w,h = button(C.DIFF_NAMES[d], bx, ry, 70, 32, mx, my, acol, ahcol)
+            local _, x,y,w,h = button(C.DIFF_NAMES[d], bx, ry, 86, 44, mx, my, acol, ahcol)
             hits[#hits+1] = {type="diff", player=p, diff=d, x=x,y=y,w=w,h=h}
         end
     end
 
-    -- ── Settings row: intro animation, sound, card-back theme ──
-    local setY = diffTitleY + 20 + 3 * 44 + 16
-    -- Intro animation toggle
+    -- ── Settings row: deal animation, sound, card-back theme ──
+    local setY = diffRow0 + 2 * 54 + 44 + 18
     local introCol  = setupState.introAnim and PAL.btn_green   or PAL.btn_blue
     local introHCol = setupState.introAnim and PAL.btn_green_h or PAL.btn_hover
     local _, sx, sy, sw, sh = button(
-        setupState.introAnim and "Intro Anim: ON" or "Intro Anim: OFF",
-        C.SW/2 - 380, setY, 160, 32, mx, my, introCol, introHCol)
+        setupState.introAnim and "Deal Animation: On" or "Deal Animation: Off",
+        C.SW/2 - 380, setY, 215, 44, mx, my, introCol, introHCol)
     hits[#hits+1] = {type="introanim", x=sx, y=sy, w=sw, h=sh}
 
-    -- Sound toggle
     local sndCol  = setupState.soundOn and PAL.btn_green   or PAL.btn_blue
     local sndHCol = setupState.soundOn and PAL.btn_green_h or PAL.btn_hover
     local _, sx2, sy2, sw2, sh2 = button(
-        setupState.soundOn and "Sound: ON" or "Sound: OFF",
-        C.SW/2 - 210, setY, 140, 32, mx, my, sndCol, sndHCol)
+        setupState.soundOn and "Sound: On" or "Sound: Off",
+        C.SW/2 - 150, setY, 135, 44, mx, my, sndCol, sndHCol)
     hits[#hits+1] = {type="sound", x=sx2, y=sy2, w=sw2, h=sh2}
 
-    -- Card back theme preview + cycler
-    local backX = C.SW/2 - 60
+    -- Card-back preview + cycler
+    local backX = C.SW/2 + 5
     setColor(PAL.text_dim)
-    love.graphics.setFont(fonts.tiny)
-    love.graphics.print("Back theme:", backX, setY + 2)
-    -- Preview swatch
-    local pvW, pvH = 44, 32
+    love.graphics.setFont(fonts.small)
+    love.graphics.print("Card Back", backX, setY + 13)
+    local pvW, pvH = 50, 44
     setColor(0, 0, 0, 0.3)
-    love.graphics.rectangle("fill", backX + 78, setY, pvW, pvH, 4)
+    love.graphics.rectangle("fill", backX + 88, setY, pvW, pvH, 5)
     if currentBack then
         setColor(1, 1, 1)
-        love.graphics.draw(currentBack, backX + 78, setY, 0,
+        love.graphics.draw(currentBack, backX + 88, setY, 0,
             pvW / currentBack:getWidth(), pvH / currentBack:getHeight())
     end
     setColor(PAL.text_dim)
     love.graphics.setLineWidth(1)
-    love.graphics.rectangle("line", backX + 78, setY, pvW, pvH, 4)
-    -- prev / next theme buttons
-    local _, px, py, pw, ph = button("<", backX + 130, setY, 32, 32, mx, my,
+    love.graphics.rectangle("line", backX + 88, setY, pvW, pvH, 5)
+    local _, px, py, pw, ph = button("<", backX + 150, setY, 44, 44, mx, my,
         PAL.btn_blue, PAL.btn_hover)
     hits[#hits+1] = {type="backprev", x=px, y=py, w=pw, h=ph}
-    local _, nx, ny, nw, nh = button(">", backX + 170, setY, 32, 32, mx, my,
+    local _, nx, ny, nw, nh = button(">", backX + 202, setY, 44, 44, mx, my,
         PAL.btn_blue, PAL.btn_hover)
     hits[#hits+1] = {type="backnext", x=nx, y=ny, w=nw, h=nh}
 
-    -- ── Weather / Board theme row ──
-    -- Weather ON = mood follows wall-clock (sunrise / noon / afternoon /
-    -- evening / night). OFF = player picks one of the six boards manually
-    -- (Classic is the safe baseline matching V1's static green table).
-    local setY2 = setY + 44
+    -- ── Table style row ──
+    -- Automatic = the felt re-themes itself with the time of day (sunrise /
+    -- noon / afternoon / evening / night). Manual = pick one and keep it.
+    local setY2 = setY + 44 + 14
     local wCol  = setupState.weatherOn and PAL.btn_green   or PAL.btn_blue
     local wHCol = setupState.weatherOn and PAL.btn_green_h or PAL.btn_hover
     local _, wx, wy, ww, wh = button(
-        setupState.weatherOn and "Weather: ON (time of day)" or "Weather: OFF",
-        C.SW/2 - 380, setY2, 240, 32, mx, my, wCol, wHCol)
+        setupState.weatherOn and "Table: Follows the Clock" or "Table: Manual Choice",
+        C.SW/2 - 380, setY2, 250, 44, mx, my, wCol, wHCol)
     hits[#hits+1] = {type="weather", x=wx, y=wy, w=ww, h=wh}
 
     if setupState.weatherOn then
-        -- Show which mood the clock currently maps to
         local nowMood = R.Mood.byClock()
         setColor(PAL.text_dim)
         love.graphics.setFont(fonts.small)
-        centredText(fonts.small, "Now: " .. nowMood.name,
-            C.SW/2 + 40, setY2 + 16)
+        centredText(fonts.small, "Right now: " .. nowMood.name,
+            C.SW/2 - 20, setY2 + 22)
     else
-        -- Manual mood cycler
-        setColor(PAL.text_dim)
-        love.graphics.setFont(fonts.tiny)
-        love.graphics.print("Board:", C.SW/2 - 130, setY2 + 10)
-
         local currentMood = R.Mood.ALL[setupState.moodId] or R.Mood.classic
         local _, mpx, mpy, mpw, mph = button("<",
-            C.SW/2 - 70, setY2, 28, 32, mx, my, PAL.btn_blue, PAL.btn_hover)
+            C.SW/2 - 110, setY2, 44, 44, mx, my, PAL.btn_blue, PAL.btn_hover)
         hits[#hits+1] = {type="moodprev", x=mpx, y=mpy, w=mpw, h=mph}
 
         setColor(PAL.white)
-        centredText(fonts.med, currentMood.name, C.SW/2 + 30, setY2 + 16)
+        centredText(fonts.med, currentMood.name, C.SW/2 + 5, setY2 + 22)
 
         local _, mnx, mny, mnw, mnh = button(">",
-            C.SW/2 + 110, setY2, 28, 32, mx, my, PAL.btn_blue, PAL.btn_hover)
+            C.SW/2 + 120, setY2, 44, 44, mx, my, PAL.btn_blue, PAL.btn_hover)
         hits[#hits+1] = {type="moodnext", x=mnx, y=mny, w=mnw, h=mnh}
     end
 
@@ -2692,25 +2680,26 @@ function R.drawNewGameSetup(setupState, mx, my)
     -- raw spacing. A true-size preview pair renders at the bottom-right so
     -- the change is visible live, before dealing.
     do
-        local czX = C.SW/2 + 180
-        drawCardSlider(czX, setY2 - 6, 200, mx, my, hits)
+        local czX = C.SW/2 + 190
+        drawCardSlider(czX, setY2 - 2, 210, mx, my, hits)
 
         local pvX = C.SW - CW * 2 - 70
         local pvY = C.SH - CH - 30
         setColor(PAL.text_dim)
-        love.graphics.setFont(fonts.tiny)
-        love.graphics.print("Live size preview:", pvX, pvY - 18)
+        love.graphics.setFont(fonts.small)
+        love.graphics.print("Live size preview:", pvX, pvY - 22)
         drawCardFace(pvX, pvY, {rank = 14, suit = C.SPADES}, nil, false)
         drawCardBack(pvX + CW + 14, pvY)
     end
 
     -- ── Deal button + Back ──
-    local dealY = setY2 + 56
-    local _, dx,dy,dw,dh = button("DEAL HAND", C.SW/2 - 120, dealY, 240, 56, mx, my,
-        {0.65,0.10,0.10}, {0.82,0.15,0.15})
+    -- The one button that matters most gets the biggest target on the screen.
+    local dealY = setY2 + 44 + 20
+    local _, dx,dy,dw,dh = button("DEAL HAND", C.SW/2 - 160, dealY, 320, 76, mx, my,
+        {0.65,0.10,0.10}, {0.82,0.15,0.15}, fonts.large)
     hits[#hits+1] = {type="deal", x=dx,y=dy,w=dw,h=dh}
 
-    local _, bx2,by2,bw2,bh2 = button("< Main Menu", 40, 30, 160, 36, mx, my,
+    local _, bx2,by2,bw2,bh2 = button("< Main Menu", 36, 26, 180, 48, mx, my,
         PAL.btn_blue, PAL.btn_hover)
     hits[#hits+1] = {type="back", x=bx2,y=by2,w=bw2,h=bh2}
 
