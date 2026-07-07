@@ -913,11 +913,18 @@ local FLIGHT_TIME   = 0.22
 
 local function handAnchor(player)
     if C.PHONE then
-        local cy = phoneTrickCY()
-        if     player == C.NORTH then return C.SW/2,      54,            0
-        elseif player == C.SOUTH then return C.SW/2,      C.SH - 100,    0
-        elseif player == C.EAST  then return C.SW - 84,   cy,            math.pi/2
-        else                          return 84,          cy,           -math.pi/2
+        -- Fan anchors, computed from the BASE card width (this runs inside
+        -- the trick-metric push, so module CW is the trick size here).
+        local base = R.CARD_W or CW
+        local bw   = math.floor(base * 0.64 + 0.5)          -- PH.side_w
+        local bh   = math.floor(bw * (134 / 96) + 0.5)
+        local sx   = bh/2 + 8
+        local sw2  = math.floor(base * 1.33 + 0.5)          -- PH.south_w
+        local sh2  = math.floor(sw2 * (134 / 96) + 0.5)
+        if     player == C.NORTH then return C.SW/2,          8 + bh/2,           0
+        elseif player == C.SOUTH then return C.SW/2,          C.SH - 12 - sh2/2,  0
+        elseif player == C.EAST  then return C.SW - sx - 10,  C.SH/2 + 42,        math.pi/2
+        else                          return sx + 10,         C.SH/2 + 42,       -math.pi/2
         end
     end
     if     player == C.NORTH then return C.SW/2,        18 + CH/2,        0
@@ -1124,94 +1131,119 @@ local function drawPanel(x, y, w, h)
     love.graphics.rectangle("fill", x, y, w, h, 12)
 end
 
+-- Contract panel. Every row is MEASURED from the live fonts (the Text Size
+-- option rebuilds them), and the panel sizes itself around the widest line —
+-- text can never escape or collide inside the box, at any text scale.
 local function drawInfoPanel(game)
     if not game.contract then return end
 
-    local w, h = 240, 180
-    local x, y = C.SW - w - 15, 15
-    
-    -- Drop shadow
-    setColor(0, 0, 0, 0.4)
-    love.graphics.rectangle("fill", x+4, y+4, w, h, 10)
-    
-    -- Main slate panel
-    setColor(0x2C/255, 0x30/255, 0x3A/255, 0.95)
-    love.graphics.rectangle("fill", x, y, w, h, 10)
-    
-    -- Inner border
-    setColor(0x3A/255, 0x40/255, 0x4A/255)
-    love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", x, y, w, h, 10)
-    
-    -- Contract Level & Suit
+    local smH, mdH, lgH = fonts.small:getHeight(), fonts.med:getHeight(),
+                          fonts.large:getHeight()
+
     local level = (game.contract.tricks or 7) - 6
     local extra = ""
     if game.contractRedoubled then extra = " XX"
     elseif game.contractDoubled then extra = " X" end
-    
-    -- Title: "CURRENT CONTRACT"
-    love.graphics.setFont(fonts.small)
-    setColor(0.6, 0.65, 0.7)
-    centredText(fonts.small, "CURRENT CONTRACT", x + w/2, y + 18)
-    
-    -- Big Contract display (e.g. "4 S")
-    love.graphics.setFont(fonts.large)
-    setColor(PAL.white)
-    
+
+    local title        = "CURRENT CONTRACT"
     local contractText = tostring(level) .. extra
-    local cWidth = fonts.large:getWidth(contractText)
-    local cx = x + w/2
-    
+    local pipR, pipGap = 0, 0
     if game.trumpSuit then
-        cWidth = cWidth + 24 -- roughly the space for the pip
-        local tx = cx - cWidth/2
-        love.graphics.print(contractText, tx, y + 36)
-        setColor(C.SUIT_IS_RED[game.trumpSuit] and PAL.red_suit or PAL.white)
-        drawPip(game.trumpSuit, tx + cWidth - 8, y + 54, 12)
+        pipR, pipGap = math.max(10, math.floor(lgH * 0.36)), 10
     else
         contractText = contractText .. " NT"
-        centredText(fonts.large, contractText, cx, y + 54)
     end
-    
-    -- "4 + 6 = 10 Tricks" line
-    setColor(PAL.gold_hi)
-    love.graphics.setFont(fonts.med)
+    local bigW       = fonts.large:getWidth(contractText) + pipGap + pipR * 2
     local targetLine = string.format("Target: %d + 6 = %d Tricks", level, game.contractTricks)
-    centredText(fonts.med, targetLine, cx, y + 90)
-    
-    -- Declarer
-    setColor(0.7, 0.75, 0.8)
-    love.graphics.setFont(fonts.small)
-    centredText(fonts.small, "Declarer: " .. C.PLAYER_NAMES[game.declarer], cx, y + 116)
-    
-    -- Separator line
+    local declLine   = "Declarer: " .. C.PLAYER_NAMES[game.declarer]
+    local dSide      = game.declaringSide == "NS" and "N-S" or "E-W"
+    local xSide      = game.declaringSide == "NS" and "E-W" or "N-S"
+    local scoreText  = string.format("%s: %d      %s: %d",
+                           dSide, game.tricksDeclarer, xSide, game.tricksDefender)
+
+    local pad = 18
+    local w = math.max(240,
+        fonts.small:getWidth(title)    + pad * 2,
+        bigW                           + pad * 2,
+        fonts.med:getWidth(targetLine) + pad * 2,
+        fonts.small:getWidth(declLine) + pad * 2,
+        fonts.med:getWidth(scoreText)  + pad * 2)
+    local gap = 6
+    local h = 12 + smH + gap + lgH + gap + mdH + gap + smH + 8 + 1 + 8 + mdH + 12
+    local x, y = C.SW - w - 15, 15
+    local cx = x + w/2
+
+    -- Drop shadow, slate panel, inner border
+    setColor(0, 0, 0, 0.4)
+    love.graphics.rectangle("fill", x+4, y+4, w, h, 10)
+    setColor(0x2C/255, 0x30/255, 0x3A/255, 0.95)
+    love.graphics.rectangle("fill", x, y, w, h, 10)
     setColor(0x3A/255, 0x40/255, 0x4A/255)
-    love.graphics.line(x + 20, y + 135, x + w - 20, y + 135)
-    
-    -- Tricks won so far
-    local dSide = game.declaringSide == "NS" and "N-S" or "E-W"
-    local xSide = game.declaringSide == "NS" and "E-W" or "N-S"
-    
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", x, y, w, h, 10)
+
+    local cy = y + 12
+    setColor(0.6, 0.65, 0.7)
+    centredText(fonts.small, title, cx, cy + smH/2)
+    cy = cy + smH + gap
+
+    -- Big contract line, pip vertically centred on the text
     setColor(PAL.white)
-    love.graphics.setFont(fonts.med)
-    local scoreText = string.format("%s: %d      %s: %d", dSide, game.tricksDeclarer, xSide, game.tricksDefender)
-    centredText(fonts.med, scoreText, cx, y + 154)
+    local tx = cx - bigW/2
+    love.graphics.setFont(fonts.large)
+    love.graphics.print(contractText, tx, cy)
+    if game.trumpSuit then
+        setColor(C.SUIT_IS_RED[game.trumpSuit] and PAL.red_suit or PAL.white)
+        drawPip(game.trumpSuit, tx + bigW - pipR, cy + lgH/2, pipR)
+    end
+    cy = cy + lgH + gap
+
+    setColor(PAL.gold_hi)
+    centredText(fonts.med, targetLine, cx, cy + mdH/2)
+    cy = cy + mdH + gap
+
+    setColor(0.7, 0.75, 0.8)
+    centredText(fonts.small, declLine, cx, cy + smH/2)
+    cy = cy + smH + 8
+
+    setColor(0x3A/255, 0x40/255, 0x4A/255)
+    love.graphics.line(x + 20, cy, x + w - 20, cy)
+    cy = cy + 9
+
+    setColor(PAL.white)
+    centredText(fonts.med, scoreText, cx, cy + mdH/2)
+end
+
+-- Score panel geometry, measured from the live fonts. Shared with the
+-- Options trigger below it so the button always clears the panel.
+local function scorePanelRect()
+    local mdH = fonts.med:getHeight()
+    local h   = 8 + mdH + 6 + mdH + 4 + mdH + 10
+    return 8, 8, 185, h
+end
+
+function R.scorePanelBottom()
+    local _, y, _, h = scorePanelRect()
+    return y + h
 end
 
 local function drawScorePanel(game)
-    local x, y, w, h = 8, 8, 185, 76
+    local x, y, w, h = scorePanelRect()
+    local mdH = fonts.med:getHeight()
+    local htxt = "Deal " .. Deck.encodeSeed(game.seed)
+    w = math.max(w, fonts.med:getWidth("SCORE") + fonts.small:getWidth(htxt) + 28)
     drawPanel(x, y, w, h)
     love.graphics.setFont(fonts.med)
     setColor(PAL.yellow)
-    love.graphics.print("SCORE", x+8, y+6)
+    love.graphics.print("SCORE", x+8, y+8)
     love.graphics.setFont(fonts.small)
     setColor(PAL.text_dim)
-    local htxt = "Deal " .. Deck.encodeSeed(game.seed)
-    love.graphics.print(htxt, x + w - (fonts.small:getWidth(htxt)) - 8, y+9)
+    love.graphics.print(htxt, x + w - (fonts.small:getWidth(htxt)) - 8,
+        y + 8 + (mdH - fonts.small:getHeight())/2)
     love.graphics.setFont(fonts.med)
     setColor(PAL.white)
-    love.graphics.print(string.format("N-S : %d", game.sessionScore[1]), x+8, y+28)
-    love.graphics.print(string.format("E-W : %d", game.sessionScore[2]), x+8, y+50)
+    love.graphics.print(string.format("N-S : %d", game.sessionScore[1]), x+8, y + 8 + mdH + 6)
+    love.graphics.print(string.format("E-W : %d", game.sessionScore[2]), x+8, y + 8 + 2*(mdH + 5))
 end
 
 -- ── Seat badges: compass direction glyph + role chip ───────────────────────
@@ -1387,71 +1419,32 @@ local function drawPlayerLabels(game)
     setColor(1, 1, 1, 1)
 end
 
--- ── Phone seat badge ────────────────────────────────────────────────────────
--- On the phone a face-down opponent is a compass badge with their name, a
--- live card count, and their role chip — thirteen hidden card backs carry
--- no information and were costing the screen half its space.
-function drawSeatBadgePhone(game, p, cx, cy, layout)
+-- ── Phone seat tag ──────────────────────────────────────────────────────────
+-- On the phone every opponent now holds a REAL fan of card backs (the mini
+-- badge fans made them look ignored), so the tag is just identity: compass
+-- token + name plate + role chip, parked beside the fan. `align` says which
+-- side of the token the name extends to ("left" keeps it clear of a fan
+-- sitting to the token's right, "right" the mirror).
+function drawSeatTagPhone(game, p, cx, cy, align)
     local accent, active = seatAccent(game, p)
     local role, roleBg   = roleFor(game, p)
-    local r = 24
+    local r = 20
+    love.graphics.setFont(fonts.small)
+    local name   = C.PLAYER_NAMES[p]
+    local nw     = fonts.small:getWidth(name)
+    local plateH = fonts.small:getHeight() + 10
+    local gap    = 10
+    local lx     -- name text left edge
+    if align == "left" then lx = cx - r - gap - nw - 6
+    else                    lx = cx + r + gap + 6 end
     compassToken(cx, cy, r, p, accent, active)
-    -- "row" layout (North, where the trick cluster owns the space below):
-    -- mini fan to the LEFT of the token, name to the RIGHT — one slim strip
-    -- along the top edge that nothing can cover.
-    local row = (layout == "row")
-    love.graphics.setFont(fonts.small)
-    local name = C.PLAYER_NAMES[p]
-    local nw   = fonts.small:getWidth(name)
-    local lx, ly
-    if row then
-        lx, ly = cx + r + 12, cy - 12
-    else
-        lx, ly = math.max(4, math.min(C.SW - nw - 4, cx - nw/2)), cy + r + 8
-    end
-    setColor(0, 0, 0, 0.38)
-    love.graphics.rectangle("fill", lx - 6, ly - 3, nw + 12, 24, 12)
+    setColor(0, 0, 0, 0.42)
+    love.graphics.rectangle("fill", lx - 8, cy - plateH/2, nw + 16, plateH, plateH/2)
     setColor(active and PAL.yellow or PAL.white)
-    love.graphics.print(name, lx, ly)
-    -- Their hand, visible: a mini fan of card backs that SHRINKS as they
-    -- play — you can see at a glance how many cards everyone holds, like
-    -- looking across a real table. Count label at the fan's end.
-    local n = game.hands and game.hands[p] and #game.hands[p] or 0
-    local mfW, mfH, mfOV = 24, 34, 9
-    local fanW = (n > 0) and (mfW + (n - 1) * mfOV) or 0
-    love.graphics.setFont(fonts.small)
-    local cntTxt = tostring(n)
-    local cw2 = fanW > 0 and (fonts.small:getWidth(cntTxt) + 8) or 0
-    local bx, byy
-    if row then
-        bx, byy = cx - r - 16 - fanW - cw2, cy - mfH/2
-    else
-        bx = math.max(4, math.min(C.SW - fanW - cw2 - 4, cx - (fanW + cw2)/2))
-        byy = cy + r + 34
+    love.graphics.print(name, lx, cy - fonts.small:getHeight()/2)
+    if role then
+        drawRoleChip(lx + nw/2, cy + plateH/2 + 13, role, roleBg)
     end
-    for i = 1, n do
-        local fx = bx + (i - 1) * mfOV
-        -- fanned tilt: outermost cards lean a touch
-        local tilt = ((i - (n + 1) / 2) / math.max(1, n)) * 0.16
-        love.graphics.push()
-        love.graphics.translate(fx + mfW/2, byy + mfH/2)
-        love.graphics.rotate(tilt)
-        setColor(0, 0, 0, 0.30)
-        love.graphics.rectangle("fill", -mfW/2 + 1, -mfH/2 + 2, mfW, mfH, 3)
-        setColor(0.15, 0.25, 0.62)
-        love.graphics.rectangle("fill", -mfW/2, -mfH/2, mfW, mfH, 3)
-        setColor(0.30, 0.42, 0.85)
-        love.graphics.rectangle("fill", -mfW/2 + 3, -mfH/2 + 3, mfW - 6, mfH - 6, 2)
-        setColor(1, 1, 1, 0.30)
-        love.graphics.rectangle("line", -mfW/2, -mfH/2, mfW, mfH, 3)
-        love.graphics.pop()
-    end
-    if n > 0 then
-        setColor(PAL.white)
-        love.graphics.print(cntTxt, bx + fanW + 8, byy + (mfH - fonts.small:getHeight())/2)
-    end
-    -- Role chip above the token
-    if role then drawRoleChip(cx, cy - r - 14, role, roleBg) end
     setColor(1, 1, 1, 1)
 end
 
@@ -1567,14 +1560,16 @@ function R.drawDealing(game)
     local Anim = require("src.anim")
     drawMoodBackdrop(C.SW * 0.40, C.SH * 0.45)
 
-    -- Player labels (no HCP yet). Phone: badge positions; desktop: fan edges.
+    -- Player labels (no HCP yet). Phone: beside the landing fans; desktop:
+    -- fan edges.
     local labelPos
     if C.PHONE then
+        local bh = math.floor(math.floor(CW * 0.64 + 0.5) * (134 / 96) + 0.5)
         labelPos = {
-            [C.NORTH] = {C.SW/2,     92},
-            [C.EAST]  = {C.SW - 84,  C.SH * 0.44 + 60},
+            [C.NORTH] = {C.SW - 150,      100 + bh + 10},
+            [C.EAST]  = {C.SW - bh - 60,  C.SH/2 - 20},
             [C.SOUTH] = {C.SW/2,     C.SH - 130},
-            [C.WEST]  = {84,         C.SH * 0.44 + 60},
+            [C.WEST]  = {bh + 60,         C.SH/2 - 20},
         }
     else
         labelPos = {
@@ -1593,11 +1588,16 @@ function R.drawDealing(game)
         love.graphics.print(name, pt[1] - tw/2, pt[2])
     end
 
-    -- Title
-    setColor(PAL.dim)
-    love.graphics.rectangle("fill", 0, 0, C.SW, 42)
-    setColor(PAL.yellow)
-    centredText(fonts.large, "Dealing...", C.SW/2, 21)
+    -- Title (desktop: behind the cards, as always). On the phone North's
+    -- fan lands right under the banner, so the banner is drawn AFTER the
+    -- cards at the end of this function to stay readable.
+    local function dealingBanner()
+        setColor(PAL.dim)
+        love.graphics.rectangle("fill", 0, 0, C.SW, 42)
+        setColor(PAL.yellow)
+        centredText(fonts.large, "Dealing...", C.SW/2, 21)
+    end
+    if not C.PHONE then dealingBanner() end
 
     -- Deck pile at centre (small visual cue before the first card flies)
     if Anim.elapsed < 0.10 then
@@ -1606,17 +1606,26 @@ function R.drawDealing(game)
         end
     end
 
-    -- Every card in flight or landed: draw at interpolated pos
+    -- Every card in flight or landed: draw at interpolated pos. On the
+    -- phone each card renders at the size of the fan it's landing in
+    -- (backs for the AI seats, the big fan for South) — no size pop when
+    -- the real table takes over.
     for i, c in ipairs(Anim.cards) do
         if c.started then
-            local x, y, angle = Anim.cardPos(i)
+            local x, y, angle, player = Anim.cardPos(i)
+            if C.PHONE then
+                pushCardMetrics(player == C.SOUTH and PH.south_w() or PH.side_w())
+            end
             love.graphics.push()
             love.graphics.translate(x, y)
             love.graphics.rotate(angle or 0)
             drawCardBack(-CW/2, -CH/2)
             love.graphics.pop()
+            if C.PHONE then popCardMetrics() end
         end
     end
+
+    if C.PHONE then dealingBanner() end
 end
 
 -- ── Auction screen (contract-bridge bidding) ─────────────────────────────
@@ -1907,15 +1916,26 @@ function R.drawAuction(game, mx, my, selectedBid)
     local hits = {}
     local a    = game.auction
 
-    -- Hand display. PHONE: only the South hand is real cards (face-down
-    -- opponents become compass badges — their card backs carry nothing and
-    -- were the reason everything else had to be tiny). DESKTOP: classic
-    -- four-fan table.
+    -- Hand display. PHONE: the South hand is the big face-up fan; the three
+    -- AI seats hold real fans of card backs at the table edges (the board
+    -- and bidding grid draw over their fringes — cards under the action,
+    -- like a real crowded table). DESKTOP: classic four-fan table.
     if C.PHONE then
         drawHorizHand(game.hands[C.SOUTH], C.SW/2, C.SH-CH-14, true, nil, nil, nil, false)
-        drawSeatBadgePhone(game, C.NORTH, C.SW - 84, 96)
-        drawSeatBadgePhone(game, C.EAST,  C.SW - 84,  math.floor(C.SH * 0.70))
-        drawSeatBadgePhone(game, C.WEST,  84,         math.floor(C.SH * 0.70))
+        pushCardMetrics(PH.side_w())
+        -- North holds a COMPACT fan top-right (the board, grid and action
+        -- stack own the top-centre here — a full-width fan just disappears
+        -- under them); E/W keep their play-screen side fans.
+        OV = 14
+        drawHorizHand(game.hands[C.NORTH], C.SW - 150, 100, false, nil, nil, nil, false)
+        popCardMetrics()
+        pushCardMetrics(PH.side_w())
+        drawVertHand(game.hands[C.EAST],  C.SW - SIDE_X - 10, C.SH/2 + 42,  math.pi/2, false, nil)
+        drawVertHand(game.hands[C.WEST],  SIDE_X + 10,        C.SH/2 + 42, -math.pi/2, false, nil)
+        popCardMetrics()
+        drawSeatTagPhone(game, C.NORTH, C.SW - 84, 74,                        "left")
+        drawSeatTagPhone(game, C.EAST,  C.SW - 84, math.floor(C.SH * 0.70),   "left")
+        drawSeatTagPhone(game, C.WEST,  84,        math.floor(C.SH * 0.70),   "right")
         -- South label with HCP, above the fan
         love.graphics.setFont(fonts.small)
         local sname = "South"
@@ -2081,42 +2101,56 @@ function R.drawGame(game, southSel, southHov, northSel, northHov, revealCard)
     if C.PHONE then
         -- ── PHONE LAYOUT ────────────────────────────────────────────────
         -- The phone is not a small PC: the human's hand is the star and
-        -- fills the bottom of the screen at full size; face-down opponents
-        -- become compass badges with card counts (their 13 hidden backs
-        -- carry zero information); a dummy is a proper readable fan; the
-        -- trick sits in a tight cluster just above the player's cards.
-        local cy = phoneTrickCY()
+        -- fills the bottom of the screen at full size; the three AI seats
+        -- hold REAL fans of card backs (a table where only you hold cards
+        -- looks abandoned) that shrink as they play; a dummy is a proper
+        -- readable fan; the trick sits in a tight cluster just above the
+        -- player's cards, laid ON TOP of the fringes of the fans — like
+        -- cards played toward the middle of a small table.
 
-        -- Opponent badges (or dummy fans) --------------------------------
+        -- North: dummy fan (readable) or a fan of backs along the top.
         if nFace then
             pushCardMetrics(PH.dummy_w())
             nHits = drawHorizHand(game.hands[C.NORTH], C.SW/2, 14,
                         true, nPlayable, northSel, northHov, false)
+            drawSeatTagPhone(game, C.NORTH,
+                C.SW/2 - (12 * OV + CW)/2 - 46, 14 + CH/2, "left")
             popCardMetrics()
         else
-            drawSeatBadgePhone(game, C.NORTH, C.SW/2, 44, "row")
+            pushCardMetrics(PH.side_w())
+            drawHorizHand(game.hands[C.NORTH], C.SW/2, 8,
+                        false, nil, nil, nil, false)
+            drawSeatTagPhone(game, C.NORTH,
+                C.SW/2 - (12 * OV + CW)/2 - 46, 8 + CH/2, "left")
+            popCardMetrics()
             nHits = {}
         end
 
+        -- East / West: side fans at the screen edges — faces when dummy,
+        -- backs otherwise. Same metric and anchor either way, so the dummy
+        -- reveal happens in place. Tags sit inboard, clear of the trick.
+        pushCardMetrics(PH.side_w())
+        local sideCY = C.SH/2 + 42
         if eFace then
-            pushCardMetrics(PH.side_w())
-            eHits = drawVertHand(game.hands[C.EAST], C.SW - SIDE_X - 10, C.SH/2 + 42,
+            eHits = drawVertHand(game.hands[C.EAST], C.SW - SIDE_X - 10, sideCY,
                         math.pi/2, true, ePlayable)
-            popCardMetrics()
         else
-            drawSeatBadgePhone(game, C.EAST, C.SW - 84, cy)
+            drawVertHand(game.hands[C.EAST], C.SW - SIDE_X - 10, sideCY,
+                        math.pi/2, false, nil)
             eHits = {}
         end
+        drawSeatTagPhone(game, C.EAST, C.SW - CH - 48, C.SH/2 - 20, "left")
 
         if wFace then
-            pushCardMetrics(PH.side_w())
-            wHits = drawVertHand(game.hands[C.WEST], SIDE_X + 10, C.SH/2 + 42,
+            wHits = drawVertHand(game.hands[C.WEST], SIDE_X + 10, sideCY,
                         -math.pi/2, true, wPlayable)
-            popCardMetrics()
         else
-            drawSeatBadgePhone(game, C.WEST, 84, cy)
+            drawVertHand(game.hands[C.WEST], SIDE_X + 10, sideCY,
+                        -math.pi/2, false, nil)
             wHits = {}
         end
+        drawSeatTagPhone(game, C.WEST, CH + 48, C.SH/2 - 20, "right")
+        popCardMetrics()
 
         -- The big South fan ----------------------------------------------
         pushCardMetrics(PH.south_w())
@@ -2214,12 +2248,14 @@ end
 function R.drawGameOptions(optsOpen, mx, my)
     local hits = {}
 
+    -- Anchored below the score panel, whose height follows the text scale.
+    local topY = R.scorePanelBottom() + 8
     local _, gx, gy, gw, gh = button(optsOpen and "Close" or "Options",
-        8, 92, 130, 44, mx, my, PAL.btn_blue, PAL.btn_hover)
+        8, topY, 130, 44, mx, my, PAL.btn_blue, PAL.btn_hover)
     hits[#hits+1] = {type = "optsgear", x = gx, y = gy, w = gw, h = gh}
 
     if optsOpen then
-        local px, py, pw, ph = 8, 144, 330, 164
+        local px, py, pw, ph = 8, topY + 52, 330, 164
         setColor(0, 0, 0, 0.4)
         love.graphics.rectangle("fill", px + 3, py + 4, pw, ph, 10)
         setColor(0x2C/255, 0x30/255, 0x3A/255, 0.97)

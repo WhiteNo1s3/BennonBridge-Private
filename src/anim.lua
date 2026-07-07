@@ -55,14 +55,16 @@ local SIDE_X       = C.CARD_H / 2 + 8
 --   vert:   cy = baseY - span/2 + (i-1)*OV + CARD_W/2  for BOTH East and West
 -- (The old version ran West's fan upward and returned edge coords — cards
 -- landed mirrored/half-a-card off, then snapped when the real hand drew.)
-local function horizFanXY(baseCX, baseCY, slot, total)
-    local span = (total - 1) * OVERLAP + CARD_W
-    return baseCX - span/2 + (slot - 1) * OVERLAP + CARD_W/2, baseCY
+local function horizFanXY(baseCX, baseCY, slot, total, w, ov)
+    w, ov = w or CARD_W, ov or OVERLAP
+    local span = (total - 1) * ov + w
+    return baseCX - span/2 + (slot - 1) * ov + w/2, baseCY
 end
 
-local function vertFanXY(baseCX, baseCY, slot, total)
-    local span = (total - 1) * OVERLAP + CARD_W
-    return baseCX, baseCY - span/2 + (slot - 1) * OVERLAP + CARD_W/2
+local function vertFanXY(baseCX, baseCY, slot, total, w, ov)
+    w, ov = w or CARD_W, ov or OVERLAP
+    local span = (total - 1) * ov + w
+    return baseCX, baseCY - span/2 + (slot - 1) * ov + w/2
 end
 
 -- Public: start a fresh deal animation for the four hands.
@@ -89,15 +91,29 @@ function A.startDeal(hands, dealer)
                    C.NEXT[C.NEXT[C.NEXT[dealer]]], dealer}
 
     -- Player position centers + orientation (matches render).
-    -- PHONE: opponents are compass badges, so their cards fly to a tidy
-    -- pile at the badge instead of a fan; South still fans out.
+    -- PHONE: every seat is a real fan — the three AI seats hold card backs
+    -- at the table edges (render's PH.side_w metric: 0.64× the base card),
+    -- South fans big across the bottom (PH.south_w: 1.33×, widened overlap).
+    -- These mirror render.lua's phone drawGame anchors exactly, so cards
+    -- land on the very slots they'll occupy during play.
     local posOf
     if C.PHONE then
+        local backW  = math.floor(CARD_W * 0.64 + 0.5)
+        local backH  = math.floor(backW * (134 / 96) + 0.5)
+        local backOV = math.max(12, math.floor(backW * (32 / 96) + 0.5))
+        local sideX  = backH/2 + 8
+        local sW     = math.floor(CARD_W * 1.33 + 0.5)
+        local sH     = math.floor(sW * (134 / 96) + 0.5)
+        local sOV    = math.max(12, math.floor(sW * (32 / 96) + 0.5))
+        sOV = math.max(sOV, math.min(84, math.floor((C.SW * 0.84 - sW) / 12)))
+        -- North lands in the AUCTION screen's compact top-right fan (the
+        -- auction is the very next screen after the deal); the other three
+        -- land on their shared auction/play anchors.
         posOf = {
-            [C.NORTH] = {cx = C.SW/2,      cy = 54,                    angle = 0,        horiz = true,  pile = true},
-            [C.SOUTH] = {cx = C.SW/2,      cy = C.SH - 14 - CARD_H/2,  angle = 0,        horiz = true},
-            [C.EAST]  = {cx = C.SW - 84,   cy = C.SH * 0.44,           angle = math.pi/2,horiz = false, pile = true},
-            [C.WEST]  = {cx = 84,          cy = C.SH * 0.44,           angle =-math.pi/2,horiz = false, pile = true},
+            [C.NORTH] = {cx = C.SW - 150,         cy = 100 + backH/2,     angle = 0,         horiz = true,  w = backW, ov = 14},
+            [C.SOUTH] = {cx = C.SW/2,             cy = C.SH - 12 - sH/2,  angle = 0,         horiz = true,  w = sW,    ov = sOV},
+            [C.EAST]  = {cx = C.SW - sideX - 10,  cy = C.SH/2 + 42,       angle = math.pi/2, horiz = false, w = backW, ov = backOV},
+            [C.WEST]  = {cx = sideX + 10,         cy = C.SH/2 + 42,       angle =-math.pi/2, horiz = false, w = backW, ov = backOV},
         }
     else
         posOf = {
@@ -118,15 +134,10 @@ function A.startDeal(hands, dealer)
 
         local pos = posOf[player]
         local toX, toY
-        if pos.pile then
-            -- Tidy pile at the badge: a small per-card offset keeps the
-            -- landing visible without pretending to be a fan.
-            toX = pos.cx + (slots[player] % 3 - 1) * 2
-            toY = pos.cy + (slots[player] % 4 - 1.5) * 2
-        elseif pos.horiz then
-            toX, toY = horizFanXY(pos.cx, pos.cy, slots[player], 13)
+        if pos.horiz then
+            toX, toY = horizFanXY(pos.cx, pos.cy, slots[player], 13, pos.w, pos.ov)
         else
-            toX, toY = vertFanXY(pos.cx, pos.cy, slots[player], 13)
+            toX, toY = vertFanXY(pos.cx, pos.cy, slots[player], 13, pos.w, pos.ov)
         end
 
         A.cards[i] = {
