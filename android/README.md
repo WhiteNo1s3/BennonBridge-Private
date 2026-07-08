@@ -34,8 +34,31 @@ Then apply this folder's files onto the clone:
 From the repo root, run **`build-apk.bat`** (paths at the top of the script:
 `LOVEANDROID`, `JAVA_HOME`, `ANDROID_HOME`). It zips the game into
 `game.love`, copies it to `love-android/app/src/embed/assets/`, runs the
-`assembleEmbedNoRecordDebug` Gradle task, and drops the finished APK at
+`assembleEmbedNoRecordRelease` Gradle task, and drops the finished APK at
 `dist/Bridge.apk`.
+
+## Release signing
+
+We ship the **signed release** build — a debuggable APK makes modern
+Android show a portrait "App Compatibility" warning dialog on every
+launch. Signing needs two machine-only files (NOT in this repo — back
+them up; losing the keystore means future updates can't install over
+existing ones):
+
+| File | Contents |
+|---|---|
+| `C:\Dev\keys\shaltiel-release.jks` | release keystore (CN=Shaltiel Enterprises, alias `shaltiel`) |
+| `love-android/keystore.properties` | `storeFile` / `storePassword` / `keyAlias` / `keyPassword` |
+
+`android/app-build.gradle` reads `keystore.properties` if present and
+signs the release build; without it the release build is unsigned.
+
+## Landscape note
+
+The manifest's `sensorLandscape` is not enough by itself: LÖVE/SDL
+re-requests orientation when it creates its window, and a *resizable*
+window resets it to portrait. `conf.lua` therefore sets
+`t.window.resizable = (love._os ~= "Android")`.
 
 The Windows build is `build-exe.bat` (brands the LÖVE runtime with
 `assets/Icon/Bridge.ico` **before** fusing `game.love` — rcedit strips

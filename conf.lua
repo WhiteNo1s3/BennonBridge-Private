@@ -15,7 +15,13 @@ function love.conf(t)
     t.window.height    = 800
     t.window.minwidth  = 800
     t.window.minheight = 500
-    t.window.resizable = true     -- the game rescales to any window size
+    -- Resizable on DESKTOP only (the game rescales to any window size).
+    -- On Android a resizable SDL window makes SDL re-request the screen
+    -- orientation at window creation and OVERRIDE the manifest's
+    -- sensorLandscape — the game would open in portrait. Non-resizable +
+    -- width>height makes SDL request sensor-landscape, matching the
+    -- manifest. (love._os is available at conf time; verified on 11.5.)
+    t.window.resizable = (love._os ~= "Android")
     t.window.msaa      = 4
     t.window.highdpi   = true
 end

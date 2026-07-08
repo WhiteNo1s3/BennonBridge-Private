@@ -38,10 +38,34 @@ android {
             ORIENTATION:project.properties["app.orientation"],
         ]
     }
+    // Release signing: reads love-android/keystore.properties (NOT in any
+    // repo — keystore + passwords live only on the build machine). Without
+    // that file the release build simply stays unsigned, so the config is
+    // safe to commit.
+    def keystoreProps = new Properties()
+    def keystorePropsFile = rootProject.file("keystore.properties")
+    if (keystorePropsFile.exists()) {
+        keystorePropsFile.withInputStream { keystoreProps.load(it) }
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropsFile.exists()) {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (keystorePropsFile.exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     flavorDimensions = ['mode', 'recording']

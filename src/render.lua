@@ -2866,7 +2866,7 @@ function R.drawMainMenu(setupState, mx, my)
     -- Studio signature: quiet, bottom-right corner.
     love.graphics.setFont(fonts.tiny)
     setColor(PAL.text_dim)
-    local credit = "Shaltiel Enterprises  ·  developed by WhiteNo1se"
+    local credit = "Shaltiel Enterprises  ·  developed by WhiteNo1s3"
     love.graphics.print(credit, C.SW - fonts.tiny:getWidth(credit) - 14,
         C.SH - fonts.tiny:getHeight() - 10)
 

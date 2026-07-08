@@ -66,4 +66,4 @@ android/           Android build configuration (see its README)
 
 ---
 
-A **Shaltiel Enterprises** production, developed by **WhiteNo1se** — made with love for the family bridge table. 🂡
+A **Shaltiel Enterprises** production, developed by **WhiteNo1s3** — made with love for the family bridge table. 🂡
