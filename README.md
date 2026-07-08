@@ -9,8 +9,8 @@ Grab the latest build from **[Releases](../../releases)** →
 
 | Platform | File |
 |---|---|
-| Android phone / tablet | `BennonBridge-android.apk` |
-| Windows | `BennonBridge-windows.zip` (unzip, run `Bridge.exe`) |
+| Android phone / tablet | `ShaltielBridge-android.apk` |
+| Windows | `ShaltielBridge-windows.zip` (unzip, run `Bridge.exe`) |
 
 No ads, no accounts, no network — fully offline.
 
@@ -66,4 +66,4 @@ android/           Android build configuration (see its README)
 
 ---
 
-A personal project by **Bennon** — made with love for the family bridge table. 🂡
+A **Shaltiel Enterprises** production, developed by **WhiteNo1se** — made with love for the family bridge table. 🂡

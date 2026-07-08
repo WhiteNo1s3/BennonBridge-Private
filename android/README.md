@@ -25,7 +25,7 @@ Then apply this folder's files onto the clone:
 
 | This repo | Goes to |
 |---|---|
-| `android/gradle.properties` | `love-android/gradle.properties` — app name ("Bridge"), application id `com.bennon.bridge`, version, **sensorLandscape** orientation |
+| `android/gradle.properties` | `love-android/gradle.properties` — app name ("Bridge"), application id `com.shaltiel.bridge`, version, **sensorLandscape** orientation |
 | `android/app-build.gradle` | `love-android/app/build.gradle` — pins `ndkVersion 27.1.12297006` |
 | `android/res/drawable-*/love.png` | `love-android/app/src/main/res/drawable-*/love.png` — launcher icon at 5 densities (from `assets/Icon/Icon.png`) |
 

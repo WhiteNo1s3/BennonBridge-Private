@@ -2863,6 +2863,13 @@ function R.drawMainMenu(setupState, mx, my)
     centredText(fonts.small, "You play South, at the bottom of the table.", C.SW/2, C.SH - 64)
     centredText(fonts.small, "North is your partner — together against East and West.", C.SW/2, C.SH - 42)
 
+    -- Studio signature: quiet, bottom-right corner.
+    love.graphics.setFont(fonts.tiny)
+    setColor(PAL.text_dim)
+    local credit = "Shaltiel Enterprises  ·  developed by WhiteNo1se"
+    love.graphics.print(credit, C.SW - fonts.tiny:getWidth(credit) - 14,
+        C.SH - fonts.tiny:getHeight() - 10)
+
     -- Spectator confirmation dialog: floats above the menu, and while open
     -- it owns ALL the hits so nothing behind it can be pressed by mistake.
     if setupState and setupState.confirmSpectator then

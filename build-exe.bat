@@ -28,7 +28,7 @@ if errorlevel 1 ( echo FAILED to build game.love & exit /b 1 )
 echo [2/4] Branding the LOVE runtime (icon set BEFORE fusing)...
 copy /Y "%LOVE%\love.exe" "%OUT%\_base.exe" >nul
 if exist "%RCEDIT%" (
-  "%RCEDIT%" "%OUT%\_base.exe" --set-icon "%ICO%" --set-version-string ProductName "Bridge" --set-version-string FileDescription "Bridge" --set-version-string CompanyName "Whiteno1se" --set-version-string OriginalFilename "Bridge.exe"
+  "%RCEDIT%" "%OUT%\_base.exe" --set-icon "%ICO%" --set-version-string ProductName "Bridge" --set-version-string FileDescription "Bridge" --set-version-string CompanyName "Shaltiel Enterprises" --set-version-string LegalCopyright "Copyright 2026 Shaltiel Enterprises - developed by WhiteNo1se" --set-version-string OriginalFilename "Bridge.exe"
 ) else (
   echo   [skip] %RCEDIT% not found - EXE keeps the default LOVE icon.
   echo          Get it from https://github.com/electron/rcedit/releases and save as %RCEDIT%
