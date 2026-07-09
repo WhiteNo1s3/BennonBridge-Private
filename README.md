@@ -122,3 +122,8 @@ When I forget:
 Personal hobby project. All vectors, tools, code, and design by me.
 
 Enjoy the game — the 7-board with the full traveler sheet and seeds is especially satisfying.
+
+## Credits
+
+Built by [WhiteNo1s3](https://github.com/WhiteNo1s3). Released under the MIT License.
+
