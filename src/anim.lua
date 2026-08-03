@@ -116,11 +116,18 @@ function A.startDeal(hands, dealer)
             [C.WEST]  = {cx = sideX + 10,         cy = C.SH/2 + 42,       angle =-math.pi/2, horiz = false, w = backW, ov = backOV},
         }
     else
+        -- Desktop: mirrors render.lua's AUCTION anchors (the next screen) —
+        -- South full-size bottom, the three AI seats as COMPACT fans of
+        -- backs (0.58× cards, tight overlap), so dealt cards land exactly
+        -- on the slots they'll occupy.
+        local backW  = math.floor(CARD_W * 0.58 + 0.5)
+        local backH  = math.floor(backW * (134 / 96) + 0.5)
+        local sideCX = backH/2 + 8 + 6
         posOf = {
-            [C.NORTH] = {cx = C.SW/2,        cy = 18 + CARD_H/2,         angle = 0,         horiz = true},
-            [C.SOUTH] = {cx = C.SW/2,        cy = C.SH - 18 - CARD_H/2,  angle = 0,         horiz = true},
-            [C.EAST]  = {cx = C.SW - SIDE_X, cy = C.SH/2,                angle = math.pi/2, horiz = false},
-            [C.WEST]  = {cx = SIDE_X,        cy = C.SH/2,                angle =-math.pi/2, horiz = false},
+            [C.NORTH] = {cx = C.SW/2,         cy = 48 + backH/2,          angle = 0,         horiz = true,  w = backW,  ov = 14},
+            [C.SOUTH] = {cx = C.SW/2,         cy = C.SH - 18 - CARD_H/2,  angle = 0,         horiz = true,  w = CARD_W, ov = OVERLAP},
+            [C.EAST]  = {cx = C.SW - sideCX,  cy = C.SH/2,                angle = math.pi/2, horiz = false, w = backW,  ov = 14},
+            [C.WEST]  = {cx = sideCX,         cy = C.SH/2,                angle =-math.pi/2, horiz = false, w = backW,  ov = 14},
         }
     end
 

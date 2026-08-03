@@ -21,11 +21,14 @@ V.offsetY = 0
 function V.update()
     local winW, winH = love.graphics.getDimensions()
 
-    -- Phone mode: the virtual width follows the device's real aspect ratio
-    -- so the table fills the screen edge-to-edge (no dead margins on a
-    -- 19.5:9 panel). Height stays fixed at the denser C.SH; layout code
-    -- reads C.SW per frame, so everything re-centres automatically.
-    if C.PHONE and winH > 0 then
+    -- Adaptive width, every platform: the virtual width follows the real
+    -- aspect ratio so the table fills the screen edge-to-edge — a 19.5:9
+    -- phone panel, a 16:9 monitor and a 21:9 ultrawide all get a full-width
+    -- table instead of side margins. Height stays fixed at C.SH; layout
+    -- code reads C.SW per frame, so everything re-centres automatically.
+    -- Outside the [SW_MIN, SW_MAX] clamp the felt bleed still covers the
+    -- margins (super-ultrawide, portrait windows).
+    if winH > 0 then
         local w = math.floor(C.SH * (winW / winH) + 0.5)
         C.SW = math.max(C.SW_MIN or 1100, math.min(C.SW_MAX or 1600, w))
         V.W  = C.SW

@@ -10,6 +10,7 @@ local V    = require("src.viewport")
 local SND  = require("src.sound")
 local Anim = require("src.anim")
 local Deck = require("src.deck")
+local SET  = require("src.settings")
 
 -- ── Global state ───────────────────────────────────────────────────────────
 
@@ -49,6 +50,10 @@ local pendingPress = nil      -- {h = hit, t0 = time}
 local magnifyCard  = nil
 local LONGPRESS_TIME = 0.40
 
+-- Dev screenshot harness state (see the flag parsing in love.load). When
+-- devHarness is set, settings are never saved.
+local devShot, devHarness = nil, false
+
 -- ── Helpers ────────────────────────────────────────────────────────────────
 
 -- One fresh deal, drawn uniformly across the whole code space. The customer
@@ -56,6 +61,74 @@ local LONGPRESS_TIME = 0.40
 -- engine spreads it across LÖVE's full 2^64 shuffle space.
 local function randomSeed()
     return love.math.random(1, C.SEED_MAX)
+end
+
+-- Persist the player-tunable settings. Called on every settings change (not
+-- just on quit — Android kills apps without firing love.quit).
+local function saveSettings()
+    if not setupState or devHarness then return end
+    SET.save({
+        cardW       = setupState.cardW,
+        textSize    = setupState.textSize,
+        backTheme   = setupState.backTheme,
+        soundOn     = setupState.soundOn and true or false,
+        introAnim   = setupState.introAnim and true or false,
+        weatherOn   = setupState.weatherOn and true or false,
+        moodId      = setupState.moodId,
+        matchBoards = setupState.matchBoards,
+        matchMode   = setupState.matchMode or "single",
+        diffN       = setupState.difficulty[C.NORTH],
+        diffE       = setupState.difficulty[C.EAST],
+        diffW       = setupState.difficulty[C.WEST],
+        fullscreen  = (not C.PHONE) and love.window.getFullscreen() or false,
+        maximized   = ((not C.PHONE) and not love.window.getFullscreen()
+                          and love.window.isMaximized()) and true or false,
+    })
+end
+
+-- Restore saved settings into a freshly-built setupState, validating every
+-- value (the file is user-editable; a bad value must never wedge the game).
+local function restoreSettings(saved)
+    if not saved then return end
+    local function num(v, lo, hi)
+        if type(v) ~= "number" or v ~= v then return nil end
+        return math.max(lo, math.min(hi, v))
+    end
+    setupState.cardW = num(saved.cardW, C.CARD_W_MIN, C.CARD_W_MAX)
+                           or setupState.cardW
+    local ts = num(saved.textSize, 1, #C.TEXT_SCALES)
+    if ts then setupState.textSize = math.floor(ts) end
+    if type(saved.backTheme) == "number" and R.BACK_COUNT > 0 then
+        setupState.backTheme =
+            ((math.floor(saved.backTheme) - 1) % R.BACK_COUNT) + 1
+    end
+    if type(saved.soundOn)   == "boolean" then setupState.soundOn   = saved.soundOn   end
+    if type(saved.introAnim) == "boolean" then setupState.introAnim = saved.introAnim end
+    if type(saved.weatherOn) == "boolean" then setupState.weatherOn = saved.weatherOn end
+    for _, id in ipairs(R.Mood.ORDER) do
+        if id == saved.moodId then setupState.moodId = saved.moodId break end
+    end
+    for _, n in ipairs(C.MATCH_LENGTHS) do
+        if n == saved.matchBoards then setupState.matchBoards = n break end
+    end
+    if saved.matchMode == "single" or saved.matchMode == "7board" then
+        setupState.matchMode = saved.matchMode
+    end
+    local dn = num(saved.diffN, C.EASY, C.HARDEST)
+    local de = num(saved.diffE, C.EASY, C.HARDEST)
+    local dw = num(saved.diffW, C.EASY, C.HARDEST)
+    if dn then setupState.difficulty[C.NORTH] = math.floor(dn) end
+    if de then setupState.difficulty[C.EAST]  = math.floor(de) end
+    if dw then setupState.difficulty[C.WEST]  = math.floor(dw) end
+end
+
+-- Borderless-desktop fullscreen, F11 / Alt+Enter (desktop only; Android is
+-- inherently fullscreen).
+local function toggleFullscreen()
+    if C.PHONE then return end
+    love.window.setFullscreen(not love.window.getFullscreen(), "desktop")
+    V.update()
+    saveSettings()
 end
 
 local function hitTest(hits, x, y)
@@ -130,9 +203,13 @@ function love.load()
     R.load()
     SND.load()
     game = Game.new()
+    -- Every launch opens on a fresh random deal code (type or Randomize to
+    -- change it) — two players installing the game must not get the same
+    -- first deal.
+    local seed0 = randomSeed()
     setupState = {
-        seedBuf = Deck.encodeSeed(1),
-        seed    = 1,
+        seedBuf = Deck.encodeSeed(seed0),
+        seed    = seed0,
         random  = false,
         autoSouth = false,
         introAnim = true,    -- deal animation at start of hand
@@ -151,10 +228,80 @@ function love.load()
             [C.WEST]  = C.MEDIUM,
         },
     }
+    -- Saved settings override the defaults above (validated field by field)
+    local saved = SET.load()
+    restoreSettings(saved)
     R.setMood(setupState)
     R.setCardScale(setupState.cardW)
     R.setTextScale(setupState.textSize)
+    R.setBackTheme(setupState.backTheme)
+    SND.setEnabled(setupState.soundOn and true or false)
+    Anim.enabled = setupState.introAnim and true or false
+    -- Desktop window state: returning players get back the mode they left in
+    -- (fullscreen or maximized); first run opens maximized. Skipped for the
+    -- hidden screenshot harness (maximize would un-hide the window).
+    if not C.PHONE and os.getenv("BRIDGE_HIDDEN") ~= "1" then
+        if saved and saved.fullscreen then
+            love.window.setFullscreen(true, "desktop")
+        elseif not saved or saved.maximized ~= false then
+            love.window.maximize()
+        end
+        V.update()
+    end
     game.state = C.STATE_MENU
+
+    -- Dev harness (inert without flags; combine with BRIDGE_HIDDEN=1 and
+    -- BRIDGE_SHOT_W/H for a fully invisible run at any resolution):
+    --   --auction [CODE]     jump straight into a deal's auction
+    --   --auto               spectator mode: the AI also plays South
+    --   --shot FILE DELAY    render, save FILE (PNG, in the save dir)
+    --                        after DELAY seconds, quit
+    -- Harness runs NEVER save settings (devHarness gates saveSettings), so
+    -- test runs can't corrupt a real player profile.
+    for i, v in ipairs(arg or {}) do
+        if v == "--auto" then
+            devHarness = true
+            setupState.autoSouth = true
+        elseif v == "--auction" then
+            devHarness = true
+            if arg[i + 1] then setupState.seedBuf = tostring(arg[i + 1]):upper() end
+            setupState.introAnim = false     -- dealFromSetup copies this into Anim
+            setupState.soundOn   = false     -- silent: harness must not be heard
+        elseif v == "--dealanim" then        -- (after --auction) keep the deal anim
+            setupState.introAnim = true
+        elseif v == "--shot" then
+            devHarness = true
+            devShot = {
+                file  = arg[i + 1] or "shot.png",
+                delay = tonumber(arg[i + 2]) or 1.0,
+                t0    = love.timer.getTime(),
+            }
+        end
+    end
+    for _, v in ipairs(arg or {}) do
+        if v == "--auction" then
+            dealFromSetup()
+            break
+        end
+    end
+end
+
+-- Screenshot-harness pump, called from love.update: waits out the delay,
+-- captures one frame, quits. No-op unless --shot was passed.
+local function devShotUpdate()
+    if not devShot then return end
+    local now = love.timer.getTime()
+    if devShot.quitAt then
+        if now >= devShot.quitAt then love.event.quit() end
+    elseif now - devShot.t0 >= devShot.delay then
+        love.graphics.captureScreenshot(devShot.file)
+        -- One more presented frame must pass before the PNG lands on disk
+        devShot.quitAt = now + 0.25
+    end
+end
+
+function love.quit()
+    saveSettings()
 end
 
 function love.resize(w, h)
@@ -163,7 +310,8 @@ end
 
 function love.update(dt)
     V.update()        -- cheap; safe to refresh every frame
-    
+    devShotUpdate()   -- no-op outside the dev screenshot harness
+
     if game.state == C.STATE_RESULT and game.autoSouth then
         -- Handle result auto-advance for CPU testing
         local linger = game.humanWon and 8.0 or 4.0
@@ -343,7 +491,10 @@ function love.mousereleased(x, y, btn)
     if btn ~= 1 then return end
     x, y = V.toVirtual(x, y)
 
-    sliderDrag = nil
+    if sliderDrag then
+        sliderDrag = nil
+        saveSettings()      -- card size settles on release
+    end
 
     if game.state == C.STATE_PLAYING or game.state == C.STATE_TRICK_END then
         onPlayRelease(x, y)
@@ -363,6 +514,13 @@ function love.textinput(text)
 end
 
 function love.keypressed(key)
+    -- Fullscreen: F11 or Alt+Enter, any screen (desktop only)
+    if key == "f11" or ((key == "return" or key == "kpenter")
+                        and love.keyboard.isDown("lalt", "ralt")) then
+        toggleFullscreen()
+        return
+    end
+
     if key == "escape" then
         -- Layered dismissal: dialog → magnifier → options popover → screen
         if setupState.confirmSpectator then setupState.confirmSpectator = false return end
@@ -532,6 +690,8 @@ function onSetupClick(x, y)
     elseif h.type == "back" then
         game.state = C.STATE_MENU
     end
+
+    saveSettings()
 end
 
 -- ── Auction (contract bridge bidding) ─────────────────────────────────────
@@ -602,6 +762,10 @@ function onPlayPress(x, y)
             SND.playClick()
             setupState.textSize = ((setupState.textSize or C.TEXT_DEFAULT) % #C.TEXT_SCALES) + 1
             R.setTextScale(setupState.textSize)
+            saveSettings()
+        elseif oh.type == "fullscreen" then
+            SND.playClick()
+            toggleFullscreen()
         end
         return
     end

@@ -97,9 +97,9 @@ C.AUCTION_AI_DELAY = 0.9
 -- by viewport.V.update) so the table fills the screen edge-to-edge.
 -- Screens with phone-specific layouts key off C.PHONE.
 C.PHONE = (love.system and love.system.getOS() == "Android") or false
-C.SW = 1280                       -- adaptive on phones (see viewport.lua)
+C.SW = 1280                       -- adaptive, every platform (see viewport.lua)
 C.SH = C.PHONE and 620 or 800
-C.SW_MIN = 1100                   -- adaptive-width clamp (phone)
+C.SW_MIN = 1100                   -- adaptive-width clamp
 C.SW_MAX = 1600
 
 -- Card size drives the whole table layout. Seat badges, side-hand insets and

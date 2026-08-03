@@ -1363,23 +1363,49 @@ local function roleFor(game, p)
     return nil
 end
 
+-- Per-seat fan depths for the CURRENT frame, set by drawGame's desktop
+-- branch (compact backs vs full dummy) so the badges hug whatever is
+-- actually drawn. nil outside the play screen -> classic CH-derived spots.
+local deskFanDepth = nil
+
 local function drawPlayerLabels(game)
     -- {cx, cy, layout}  layout "h" = horizontal plate (N/S), "v" = compact (E/W)
-    -- All derived from card height so a card-size change keeps the badges clear
-    -- of the hands. N/S sit just outside their hand; E/W sit inboard of the side
-    -- columns in clear felt (SIDE_BADGE), never on top of the cards.
+    -- All derived from the drawn fan depths so a card-size change (or a
+    -- compact hidden seat) keeps the badges clear of, and near, the hands.
+    local fanN = (deskFanDepth and deskFanDepth[C.NORTH]) or CH
+    local fanE = (deskFanDepth and deskFanDepth[C.EAST])  or CH
+    local fanW = (deskFanDepth and deskFanDepth[C.WEST])  or CH
+    -- N/S plates sit BESIDE their fans (never over the centre column —
+    -- played trick cards land there at big card sizes). The horizontal
+    -- anchor is the 13-card fan extent, so the plate doesn't wander as
+    -- cards are played.
+    local nHalf = (deskFanDepth and deskFanDepth.nFanW or (12 * OV + CW)) / 2
+    local sHalf = (deskFanDepth and deskFanDepth.sFanW or (12 * OV + CW)) / 2
+    -- North's spot beside the fan collides with the score panel corner on
+    -- narrow tables — fall back to below-left of the fan, clear of the
+    -- played-card column.
+    local nCx, nCy = C.SW/2 - nHalf - 88, 18 + fanN/2
+    if nCx - 95 < 210 then
+        nCx, nCy = C.SW/2 - CW/2 - 110, 18 + fanN + 23
+    end
     local pos = {
-        [C.NORTH] = {C.SW/2,             18 + CH + 23,        "h"},
-        [C.SOUTH] = {C.SW/2,             C.SH - CH - 18 - 23, "h"},
-        [C.EAST]  = {C.SW - SIDE_BADGE,  C.SH/2,              "v"},
-        [C.WEST]  = {SIDE_BADGE,         C.SH/2,              "v"},
+        [C.NORTH] = {nCx, nCy,                                "h"},
+        [C.SOUTH] = {C.SW/2 - sHalf - 88, C.SH - 18 - CH/2,   "h"},
+        [C.EAST]  = {C.SW - fanE - 30,    C.SH/2,             "v"},
+        [C.WEST]  = {fanW + 30,           C.SH/2,             "v"},
     }
 
     for p, pt in pairs(pos) do
         local cx, cy, mode = pt[1], pt[2], pt[3]
         local accent, active = seatAccent(game, p)
         local name = C.PLAYER_NAMES[p]
-        local hcp  = game.hcp and game.hcp[p]
+        -- HCP is private information: only your own hand and the (public)
+        -- dummy show a count. The old badges leaked the concealed hands'
+        -- strength to the human.
+        local hcp = nil
+        if p == C.SOUTH or p == game.dummy then
+            hcp = game.hcp and game.hcp[p]
+        end
         local role, roleBg = roleFor(game, p)
 
         if mode == "h" then
@@ -1589,11 +1615,16 @@ function R.drawDealing(game)
             [C.WEST]  = {bh + 60,         C.SH/2 - 20},
         }
     else
+        -- Mirrors the auction screen's compact-AI-fan label spots, so the
+        -- dealing -> auction transition doesn't shuffle the names around.
+        local bw2  = math.floor(CW * 0.58 + 0.5)
+        local bh2  = math.floor(bw2 * (134 / 96) + 0.5)
+        local fw2  = 12 * 14 + bw2
         labelPos = {
-            [C.NORTH] = {C.SW/2,     18 + CH + 6},
-            [C.EAST]  = {C.SW - 38,  C.SH/2},
-            [C.SOUTH] = {C.SW/2,     C.SH - CH - 18 - 22},
-            [C.WEST]  = {38,         C.SH/2},
+            [C.NORTH] = {C.SW/2 - fw2/2 - 70, 48 + bh2/2 - 9},
+            [C.EAST]  = {C.SW - bh2/2 - 14,   C.SH/2 - fw2/2 - 26},
+            [C.SOUTH] = {C.SW/2,              C.SH - CH - 18 - 22},
+            [C.WEST]  = {bh2/2 + 14,          C.SH/2 - fw2/2 - 26},
         }
     end
     love.graphics.setFont(fonts.small)
@@ -1630,15 +1661,22 @@ function R.drawDealing(game)
     for i, c in ipairs(Anim.cards) do
         if c.started then
             local x, y, angle, player = Anim.cardPos(i)
+            -- Each card flies at the size of the fan it lands in (South
+            -- full, AI seats compact) — no size pop when the table screen
+            -- takes over.
+            local w = CW
             if C.PHONE then
-                pushCardMetrics(player == C.SOUTH and PH.south_w() or PH.side_w())
+                w = (player == C.SOUTH) and PH.south_w() or PH.side_w()
+            elseif player ~= C.SOUTH then
+                w = math.floor(CW * 0.58 + 0.5)
             end
+            pushCardMetrics(w)
             love.graphics.push()
             love.graphics.translate(x, y)
             love.graphics.rotate(angle or 0)
             drawCardBack(-CW/2, -CH/2)
             love.graphics.pop()
-            if C.PHONE then popCardMetrics() end
+            popCardMetrics()
         end
     end
 
@@ -1669,15 +1707,20 @@ local function drawCallToken(x, y, w, h, call, opts)
         setColor(0.78, 0.20, 0.20)
         centredText(fonts.small, "XX", x + w/2, y + h/2)
     elseif call.type == C.CALL_BID then
+        -- Offsets measured from the live fonts — the Text Size option must
+        -- never push a call outside its token.
         local denom = call.denom
         local scol  = (denom == C.BID_NT) and {0.05, 0.05, 0.05}
                        or (C.SUIT_IS_RED[denom] and PAL.red_suit or PAL.black_suit)
         setColor(scol)
         love.graphics.setFont(fonts.med)
-        love.graphics.print(tostring(call.level), x + 5, y + h/2 - 10)
+        love.graphics.print(tostring(call.level),
+            x + 5, y + h/2 - fonts.med:getHeight()/2)
         if denom == C.BID_NT then
             love.graphics.setFont(fonts.small)
-            love.graphics.print("NT", x + 17, y + h/2 - 7)
+            love.graphics.print("NT",
+                x + 8 + fonts.med:getWidth(tostring(call.level)) + 3,
+                y + h/2 - fonts.small:getHeight()/2)
         else
             drawPip(denom, x + w - 11, y + h/2, 6)
         end
@@ -1726,7 +1769,9 @@ local function drawAuctionBoard(game, x, y, w, h)
     end
     if not startCol then startCol = 1 end
 
-    local cellH  = 28
+    -- Row pitch follows the live text scale so tokens can't collide;
+    -- maxRows shrinks accordingly and the newest rows always fit.
+    local cellH  = math.max(28, fonts.med:getHeight() + 8)
     local maxRows = math.floor((h - 68) / cellH)
     local startY  = y + 60
 
@@ -1735,11 +1780,15 @@ local function drawAuctionBoard(game, x, y, w, h)
         return 1
     end
 
+    -- Marathon auctions scroll: when the rounds outgrow the board, the
+    -- window slides so the LATEST calls are always the visible ones.
+    local totalRows = math.ceil((#a.bids + (startCol - 1)) / 4)
+    local rowOff    = math.max(0, totalRows - maxRows)
     for i, b in ipairs(a.bids) do
         local pos = i + (startCol - 1)
-        local row = math.floor((pos - 1) / 4)
+        local row = math.floor((pos - 1) / 4) - rowOff
         local col = ((pos - 1) % 4) + 1
-        if row < maxRows then
+        if row >= 0 and row < maxRows then
             local cx = x + 8 + (col - 1) * colW + 4
             local cy = startY + row * cellH
             drawCallToken(cx, cy, colW - 8, cellH - 4, b.call)
@@ -1962,17 +2011,30 @@ function R.drawAuction(game, mx, my, selectedBid)
         -- Right side, clear of the grid, the action stack and the fan
         love.graphics.print(sname, C.SW - 330, C.SH - CH - 42)
     else
-        drawHorizHand(game.hands[C.NORTH], C.SW/2, 18,             false, nil, nil, nil, false)
-        drawHorizHand(game.hands[C.SOUTH], C.SW/2, C.SH-CH-18,     true,  nil, nil, nil, false)
-        drawVertHand (game.hands[C.EAST],  C.SW-SIDE_X, C.SH/2,  math.pi/2, false, nil)
-        drawVertHand (game.hands[C.WEST],  SIDE_X,      C.SH/2, -math.pi/2, false, nil)
+        -- Your hand: full size, centre-bottom — you bid off it. The three
+        -- AI seats hold COMPACT fans of backs (phone-style): full-size back
+        -- walls dwarfed the bidding cluster and collided with the panels on
+        -- 16:9/21:9 tables.
+        drawHorizHand(game.hands[C.SOUTH], C.SW/2, C.SH-CH-18, true, nil, nil, nil, false)
+        local southLabelY = C.SH - CH - 18 - 22
 
-        -- Player labels with HCP, current bidder highlighted
+        pushCardMetrics(math.floor(CW * 0.58 + 0.5))
+        OV = 14
+        local smCH, smCW, smSideX = CH, CW, SIDE_X
+        local fanW = 12 * OV + smCW          -- compact fan extent (13 cards)
+        drawHorizHand(game.hands[C.NORTH], C.SW/2, 48, false, nil, nil, nil, false)
+        drawVertHand (game.hands[C.EAST],  C.SW - SIDE_X - 6, C.SH/2,  math.pi/2, false, nil)
+        drawVertHand (game.hands[C.WEST],  SIDE_X + 6,        C.SH/2, -math.pi/2, false, nil)
+        popCardMetrics()
+
+        -- Player labels with HCP, current bidder highlighted. North's sits
+        -- BESIDE its fan (below would touch the auction board), E/W sit
+        -- above their fans, clear of everything.
         local labelPos = {
-            [C.NORTH] = {C.SW/2,          18 + CH + 6},      -- just below the taller hand
-            [C.EAST]  = {C.SW - 38,       C.SH/2},
-            [C.SOUTH] = {C.SW/2,          C.SH - CH - 18 - 22}, -- just above the taller hand
-            [C.WEST]  = {38,              C.SH/2},
+            [C.NORTH] = {C.SW/2 - fanW/2 - 70, 48 + smCH/2 - 9},
+            [C.EAST]  = {C.SW - smSideX - 6,   C.SH/2 - fanW/2 - 26},
+            [C.SOUTH] = {C.SW/2,               southLabelY},
+            [C.WEST]  = {smSideX + 6,          C.SH/2 - fanW/2 - 26},
         }
         love.graphics.setFont(fonts.small)
         for p, pt in pairs(labelPos) do
@@ -2000,10 +2062,17 @@ function R.drawAuction(game, mx, my, selectedBid)
     centredText(fonts.large, "Auction", C.SW/2, 21)
 
     -- ── Auction history board (left) + bidding zone (right) ──
+    -- DESKTOP: the board and the bidding zone form ONE centred cluster over
+    -- the felt, whatever the adaptive table width is. (The old fixed
+    -- 145/555 anchors predate adaptive width — on a 16:9/21:9 table the
+    -- cluster listed to the left while the fans stayed centred.)
     -- Phone: the freed top space lets the board and grid sit higher and
     -- bigger; the grid bottom is tuned to kiss the South fan, not cover it.
-    local boardX, boardY, boardW, boardH = 145, 170, 360, 380
-    local boxX, boxY = 555, 170
+    local boardW, boardH = 360, 380
+    local zoneW, gapW    = 520, 50   -- bid grid (344) + 16 + action stack (160)
+    local x0 = math.max(120, math.floor((C.SW - (boardW + gapW + zoneW)) / 2))
+    local boardX, boardY = x0, 170
+    local boxX, boxY     = x0 + boardW + gapW, 170
     if C.PHONE then
         boardX, boardY, boardW, boardH = 30, 56, 340, 340
         -- Grid never starts inside the board (narrow tablet canvases)
@@ -2017,8 +2086,10 @@ function R.drawAuction(game, mx, my, selectedBid)
         drawBiddingBox(game, boxX, boxY, mx, my, selectedBid, hits)
         drawAuctionActionStack(game, boxX + 360, boxY + 20, mx, my, selectedBid, hits)
     else
-        -- Status panel during AI calls
-        local pw, ph = 590, 320
+        -- Status panel during AI calls — same slot width as the bidding
+        -- zone, so the cluster's footprint doesn't jump when the turn
+        -- passes to the human.
+        local pw, ph = 520, 320
         setColor(0.05, 0.05, 0.05, 0.78)
         love.graphics.rectangle("fill", boxX, boxY, pw, ph, 9)
         setColor(PAL.text_dim)
@@ -2178,14 +2249,53 @@ function R.drawGame(game, southSel, southHov, northSel, northHov, revealCard)
                     sFace, sPlayable, southSel, southHov, false)
         popCardMetrics()
     else
-        nHits = drawHorizHand(game.hands[C.NORTH], C.SW/2, 18,
-                        nFace, nPlayable, northSel, northHov, false)
+        -- Desktop: your hand and a face-up dummy render at full size; the
+        -- HIDDEN seats hold compact fans of backs. (Full-size back walls
+        -- read as giant slabs on 16:9/21:9 tables and collided with the
+        -- corner panels — the backs are scenery, not information.)
+        local backW  = math.floor(CW * 0.58 + 0.5)
+        local dummyW = math.floor(CW * 0.80 + 0.5)
+
+        if nFace then
+            nHits = drawHorizHand(game.hands[C.NORTH], C.SW/2, 18,
+                            true, nPlayable, northSel, northHov, false)
+        else
+            pushCardMetrics(backW)
+            OV = 14
+            drawHorizHand(game.hands[C.NORTH], C.SW/2, 18,
+                            false, nil, nil, nil, false)
+            popCardMetrics()
+            nHits = {}
+        end
         sHits = drawHorizHand(game.hands[C.SOUTH], C.SW/2, C.SH - CH - 18,
                         sFace, sPlayable, southSel, southHov, false)
-        eHits = drawVertHand(game.hands[C.EAST], C.SW - SIDE_X, C.SH/2,
+
+        -- E/W: display-only either way (only South and a North dummy are
+        -- ever clickable) — face-up side dummies render a step smaller,
+        -- hidden hands compact.
+        pushCardMetrics(eFace and dummyW or backW)
+        if not eFace then OV = 14 end
+        eHits = drawVertHand(game.hands[C.EAST], C.SW - SIDE_X - 6, C.SH/2,
                         math.pi/2, eFace, ePlayable)
-        wHits = drawVertHand(game.hands[C.WEST], SIDE_X, C.SH/2,
+        popCardMetrics()
+        pushCardMetrics(wFace and dummyW or backW)
+        if not wFace then OV = 14 end
+        wHits = drawVertHand(game.hands[C.WEST], SIDE_X + 6, C.SH/2,
                         -math.pi/2, wFace, wPlayable)
+        popCardMetrics()
+
+        -- Badge anchors follow the real per-seat fan depths (see
+        -- drawPlayerLabels): compact backs pull their badges inward.
+        local backCH  = math.floor(backW  * (134 / 96) + 0.5)
+        local dummyCH = math.floor(dummyW * (134 / 96) + 0.5)
+        deskFanDepth = {                       -- consumed by drawPlayerLabels
+            [C.NORTH] = nFace and CH or backCH,
+            [C.EAST]  = (eFace and dummyCH or backCH) + 14,
+            [C.WEST]  = (wFace and dummyCH or backCH) + 14,
+            -- 13-card fan extents for the N/S badge side-anchors
+            nFanW = nFace and (12 * OV + CW) or (12 * 14 + backW),
+            sFanW = 12 * OV + CW,
+        }
     end
 
     -- Trick in centre. During the trick-end linger the winning card gets a
@@ -2272,7 +2382,9 @@ function R.drawGameOptions(optsOpen, mx, my)
     hits[#hits+1] = {type = "optsgear", x = gx, y = gy, w = gw, h = gh}
 
     if optsOpen then
-        local px, py, pw, ph = 8, topY + 52, 330, 164
+        -- Desktop gets a third row (fullscreen toggle); Android is
+        -- inherently fullscreen.
+        local px, py, pw, ph = 8, topY + 52, 330, C.PHONE and 164 or 216
         setColor(0, 0, 0, 0.4)
         love.graphics.rectangle("fill", px + 3, py + 4, pw, ph, 10)
         setColor(0x2C/255, 0x30/255, 0x3A/255, 0.97)
@@ -2294,6 +2406,13 @@ function R.drawGameOptions(optsOpen, mx, my)
             "Text: " .. (C.TEXT_NAMES[R.TEXT_SIZE] or "Large"),
             px + 16, py + 62, pw - 32, 44, mx, my, PAL.btn_blue, PAL.btn_hover)
         hits[#hits+1] = {type = "textsize", x = tzx, y = tzy, w = tzw, h = tzh}
+
+        if not C.PHONE then
+            local _, fsx, fsy, fsw, fsh = button(
+                "Fullscreen: " .. (love.window.getFullscreen() and "On" or "Off"),
+                px + 16, py + 114, pw - 32, 44, mx, my, PAL.btn_blue, PAL.btn_hover)
+            hits[#hits+1] = {type = "fullscreen", x = fsx, y = fsy, w = fsw, h = fsh}
+        end
 
         setColor(PAL.text_dim)
         love.graphics.setFont(fonts.tiny)
@@ -2869,6 +2988,12 @@ function R.drawMainMenu(setupState, mx, my)
     local credit = "Shaltiel Enterprises  ·  developed by WhiteNo1s3"
     love.graphics.print(credit, C.SW - fonts.tiny:getWidth(credit) - 14,
         C.SH - fonts.tiny:getHeight() - 10)
+
+    -- Keyboard hint, mirrored corner (desktop only)
+    if not C.PHONE then
+        love.graphics.print("F11 — fullscreen", 14,
+            C.SH - fonts.tiny:getHeight() - 10)
+    end
 
     -- Spectator confirmation dialog: floats above the menu, and while open
     -- it owns ALL the hits so nothing behind it can be pressed by mistake.

@@ -1,9 +1,18 @@
 # BennonBridge — Handoff / Project State
 
-Onboarding doc for a fresh chat continuing work on this project. Snapshot date: **2026-08-03**.
+Onboarding doc for a fresh chat continuing work on this project. Snapshot date: **2026-08-04**.
 
 ## What this is
-Single-player **Minibridge / contract bridge** game in **LÖVE2D (Lua)**. Human plays South vs 3 AI. Resolution-independent (virtual 1280×800, letterboxed). Targets **LÖVE 12** (`conf.lua` → `t.version = "12.0"`; required for the Android build path). Local dev/testing uses LÖVE 11.5 via `lovec.exe` — a "made for newer version" warning is expected and harmless.
+Single-player **Minibridge / contract bridge** game in **LÖVE2D (Lua)**. Human plays South vs 3 AI. Resolution-independent: virtual height is fixed (800 desktop / 620 phone) and the **virtual width adapts to the real aspect ratio on every platform** (clamped 1100–1600, felt-bleed beyond) — 16:9, 16:10, 21:9 and phone panels all get an edge-to-edge table. `conf.lua` declares `t.version` **per-OS** ("12.0" on Android for love-android, "11.5" elsewhere) so no target shows the compatibility warning. Local dev/testing uses LÖVE 11.5 via `lovec.exe`.
+
+## 2026-08-04 ship round (adaptive desktop + persistence + hi-res deck)
+- **Desktop layout**: auction board + bidding zone are ONE centred cluster; the three AI seats hold **compact fans** (0.58×) during auction AND play (full-size "back walls" looked terrible on wide screens); a face-up side dummy renders 0.80×. Seat badges anchor to the drawn fan depths, N/S plates sit BESIDE their fans (with a below-left fallback for North on narrow tables). Deal animation lands cards on the exact compact/full slots (anim.lua desktop branch mirrors render's auction anchors).
+- **HCP privacy**: badges only show HCP for South and the public dummy (they used to leak concealed hands).
+- **Settings persistence**: `src/settings.lua` → `settings.lua` in the save dir; saved on every change (Android never fires love.quit). Save identity is `shaltiel-bridge`. ⚠️ Dev runs save under `%APPDATA%\LOVE\shaltiel-bridge`, the **fused exe saves under `%APPDATA%\shaltiel-bridge`** (LÖVE fused-mode path) — different files, don't chase "missing" settings.
+- **Fullscreen**: F11 / Alt+Enter (borderless), state persisted; first run opens maximized; fullscreen toggle also in the in-game Options popover (desktop only). Launch seed is randomized each boot.
+- **Dev/screenshot harness** (inert without flags): `lovec . --auction [CODE]` jumps into the auction, `--auto` = spectator, `--dealanim` keeps the deal animation, `--shot FILE DELAY` captures a PNG to the save dir and quits. Env `BRIDGE_HIDDEN=1` + `BRIDGE_SHOT_W/H` render **fully invisible** at any resolution — this is how layouts are verified without touching the desktop. Harness runs never write settings.
+- **Hi-res deck**: all 52 faces + all backs now ship at 560-wide (numerics/aces were 270/280-wide). Rendered from the BennonCards **premium-ivory SVG masters** — this also unified the deck (numerics used to be a stale white style that clashed with the ivory courts). The **ornate filigree A♠** (the signature card) was vectorized from the old raster and grafted onto the premium ivory body: new master at `bennon-cards/svg/A_of_Spades.svg` (+ synced `png/`, `backs/` renders) — **left uncommitted in the cards repo**, review & commit there.
+- **Shipped artifacts** (built from this branch): `dist\Bridge\` (fused Bridge.exe + LÖVE DLLs), `dist\Bridge-Windows-x64.zip`, `dist\Bridge.apk` (signed release, V2 cert CN=Shaltiel Enterprises).
 
 - **Run it:** double-click `run.bat` (prefers `lovec.exe` so Lua errors print to the console). Or `& "C:\Program Files\LOVE\lovec.exe" "C:\Users\Ben\Documents\bridge"`.
 - **Working dir:** `C:\Users\Ben\Documents\bridge`
