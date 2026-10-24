@@ -6,6 +6,7 @@ local AI   = require("src.ai")
 local B    = require("src.bidding")
 local A    = require("src.anim")
 local S    = require("src.sound")
+local Scoring = require("src.scoring")
 
 local Game = {}
 Game.__index = Game
@@ -395,38 +396,29 @@ function Game:_endHand()
     local needed = self.contractTricks
     local suit   = self.contract.suit
 
-    local result = {}
+    local level  = needed - 6
+    local dbl    = self.contractRedoubled and 2 or (self.contractDoubled and 1 or 0)
+    -- Board number drives vulnerability; the dealer is also derived from the
+    -- seed, so using it keeps dealer and vulnerability in the standard cycle.
+    local board  = self.seed or 1
+    local vul    = Scoring.isVulnerable(board, self.declaringSide)
+    local score  = Scoring.score(level, suit, dbl, vul, made)
 
-    if made >= needed then
-        -- Base 50 + trick points for all tricks above 6
-        local pts = 50
-        local tricksAbove6 = made - 6
-        if suit == C.NO_TRUMP then
-            pts = pts + 10 + tricksAbove6 * 30
-        elseif suit == C.HEARTS or suit == C.SPADES then
-            pts = pts + tricksAbove6 * 30
-        else
-            pts = pts + tricksAbove6 * 20
-        end
-
-        -- Game bonus if bid to game level
-        local gameLevel = C.GAME_TRICKS[suit]
-        if needed >= gameLevel then pts = pts + 250 end
-
+    local result = { vulnerable = vul, vulnerability = Scoring.vulnerability(board),
+                     rawScore = score }
+    if score >= 0 then
         result.declarerWins = true
-        result.points       = pts
+        result.points       = score
         result.desc = string.format(
             "Made! %d/%d tricks — %d pts to %s",
-            made, needed, pts, self.declaringSide)
+            made, needed, score, self.declaringSide)
     else
         local down = needed - made
-        local pts  = down * 50
-
         result.declarerWins = false
-        result.points       = pts
+        result.points       = -score
         result.desc = string.format(
             "Down %d (%d/%d tricks) — %d pts to %s",
-            down, made, needed, pts,
+            down, made, needed, -score,
             self.declaringSide == "NS" and "EW" or "NS")
     end
 
